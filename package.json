@@ -1,0 +1,12 @@
+{
+  "dependencies": {
+    "@mui/x-charts": "^8.2.0",
+    "@mui/x-date-pickers": "^8.2.0",
+    "date-fns": "^4.1.0",
+    "firebase": "^11.6.1"
+  },
+  "scripts": {
+    "setup-admin": "node --experimental-modules src/scripts/setupAdmin.js"
+  },
+  "type": "module"
+}

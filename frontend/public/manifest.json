@@ -1,6 +1,6 @@
 {
-  "short_name": "Sports Booking",
-  "name": "Sports Facility Booking System",
+  "short_name": "React App",
+  "name": "Create React App Sample",
   "icons": [
     {
       "src": "favicon.ico",
@@ -22,4 +22,4 @@
   "display": "standalone",
   "theme_color": "#000000",
   "background_color": "#ffffff"
-} 
+}

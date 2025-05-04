@@ -1,212 +1,213 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Box, 
   Button, 
   Typography, 
   Paper, 
   Container,
+  Grid,
   Card,
   CardContent,
-  CardActionArea,
-  Grid,
-  Avatar,
-  Snackbar,
+  CardActions,
   Alert,
   CircularProgress
 } from '@mui/material';
-import { 
-  AdminPanelSettings as AdminIcon, 
-  Business as OwnerIcon, 
-  Person as RenterIcon,
-  CheckCircle as CheckIcon
-} from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
-const cardStyle = {
-  height: '100%',
-  transition: 'transform 0.3s ease, box-shadow 0.3s ease',
-  '&:hover': {
-    transform: 'translateY(-8px)',
-    boxShadow: '0 8px 16px rgba(0, 0, 0, 0.1)'
-  }
-};
-
-const selectedCardStyle = {
-  ...cardStyle,
-  border: '2px solid #1976d2',
-  position: 'relative'
-};
+// Icons
+import SportsSoccerIcon from '@mui/icons-material/SportsSoccer';
+import PersonIcon from '@mui/icons-material/Person';
 
 const RoleSelection = () => {
-  const { currentUser, userDetails, updateRole } = useAuth();
-  const navigate = useNavigate();
-  
-  const [selectedRole, setSelectedRole] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [roleSelected, setRoleSelected] = useState(false);
   
-  const handleRoleSelect = (role) => {
-    setSelectedRole(role);
-  };
+  const { updateUserRole, userDetails, currentUser } = useAuth();
+  const navigate = useNavigate();
   
-  const handleConfirm = async () => {
-    if (!selectedRole) {
-      setError('Vui lòng chọn một vai trò');
-      return;
-    }
-    
-    setLoading(true);
+  const handleRoleSelect = async (role) => {
     try {
-      // Cập nhật vai trò trong Firestore
-      await updateRole(selectedRole);
+      setError('');
+      setLoading(true);
+      setRoleSelected(true);
       
-      // Điều hướng dựa trên vai trò đã chọn
-      if (selectedRole === 'admin') {
-        navigate('/admin/dashboard');
-      } else if (selectedRole === 'owner') {
-        navigate('/owner/dashboard');
-      } else {
-        navigate('/courts');
+      console.log("Chọn vai trò:", role);
+      console.log("Thông tin người dùng hiện tại:", userDetails);
+      
+      await updateUserRole(role);
+      console.log("Đã cập nhật vai trò, chuyển hướng đến:", role === 'owner' ? '/owner' : '/renter');
+      
+      // Chuyển hướng dựa trên vai trò
+      if (role === 'owner') {
+        navigate('/owner');
+      } else if (role === 'renter') {
+        navigate('/renter');
       }
     } catch (error) {
-      console.error('Error updating role:', error);
-      setError(error.message || 'Có lỗi xảy ra khi chọn vai trò. Vui lòng thử lại sau.');
-      
-      // Xử lý riêng cho lỗi 401
-      if (error.response && error.response.status === 401) {
-        setError('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
-        setTimeout(() => {
-          navigate('/login');
-        }, 3000);
-      }
+      console.error("Lỗi khi cập nhật vai trò:", error);
+      setError('Không thể cập nhật vai trò: ' + error.message);
+      setRoleSelected(false);
     } finally {
       setLoading(false);
     }
   };
   
-  const handleCloseError = () => {
-    setError('');
-  };
+  // Kiểm tra nếu người dùng đã có vai trò, chuyển hướng trực tiếp
+  useEffect(() => {
+    console.log("userDetails trong RoleSelection:", userDetails);
+    
+    if (userDetails && userDetails.role) {
+      console.log("Phát hiện vai trò:", userDetails.role);
+      
+      setTimeout(() => {
+        if (userDetails.role === 'owner') {
+          console.log("Chuyển hướng đến trang chủ sân");
+          navigate('/owner');
+        } else if (userDetails.role === 'renter') {
+          console.log("Chuyển hướng đến trang người thuê");
+          navigate('/renter');
+        } else if (userDetails.role === 'admin') {
+          console.log("Chuyển hướng đến trang admin");
+          navigate('/admin');
+        }
+      }, 100); // Timeout để đảm bảo state đã cập nhật đầy đủ
+    } else {
+      console.log("Người dùng chưa có vai trò hoặc chưa có thông tin chi tiết");
+    }
+  }, [userDetails, navigate]);
   
-  if (!currentUser) {
-    // Nếu người dùng chưa đăng nhập, chuyển hướng về trang đăng nhập
-    navigate('/login');
-    return null;
+  // Kiểm tra thêm: nếu đã chọn vai trò nhưng vẫn đang ở trang chọn vai trò
+  useEffect(() => {
+    if (roleSelected && userDetails && userDetails.role) {
+      console.log("Đã chọn vai trò nhưng vẫn ở trang chọn vai trò, thử chuyển hướng lại");
+      if (userDetails.role === 'owner') {
+        navigate('/owner');
+      } else if (userDetails.role === 'renter') {
+        navigate('/renter');
+      } else if (userDetails.role === 'admin') {
+        navigate('/admin');
+      }
+    }
+  }, [roleSelected, userDetails, navigate]);
+  
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <CircularProgress />
+      </Box>
+    );
   }
   
-  const roles = [
-    { 
-      id: 'admin', 
-      title: 'Quản trị viên', 
-      description: 'Quản lý toàn bộ hệ thống, người dùng và các sân thể thao',
-      icon: <AdminIcon sx={{ fontSize: 60, color: '#673ab7' }} />
-    },
-    { 
-      id: 'owner', 
-      title: 'Chủ sân', 
-      description: 'Quản lý các sân thể thao của bạn và các lịch đặt sân',
-      icon: <OwnerIcon sx={{ fontSize: 60, color: '#2196f3' }} />
-    },
-    { 
-      id: 'renter', 
-      title: 'Người thuê', 
-      description: 'Tìm kiếm và đặt sân thể thao phù hợp',
-      icon: <RenterIcon sx={{ fontSize: 60, color: '#4caf50' }} />
-    }
-  ];
-
+  // Hiển thị thông tin debug nếu có vấn đề
+  const debugInfo = (
+    <Box sx={{ mt: 2, p: 2, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
+      <Typography variant="subtitle2" gutterBottom>Thông tin debug:</Typography>
+      <Typography variant="body2">Đã đăng nhập: {currentUser ? 'Có' : 'Không'}</Typography>
+      <Typography variant="body2">Có thông tin chi tiết: {userDetails ? 'Có' : 'Không'}</Typography>
+      <Typography variant="body2">Vai trò hiện tại: {userDetails?.role || 'Chưa thiết lập'}</Typography>
+    </Box>
+  );
+  
   return (
-    <Container component="main" maxWidth="md" sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center' }}>
-      <Paper elevation={3} sx={{ width: '100%', padding: '40px' }}>
+    <Container component="main" maxWidth="md">
+      <Paper elevation={3} sx={{ mt: 8, p: 4, borderRadius: 2 }}>
         <Box
           sx={{
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            textAlign: 'center'
           }}
         >
-          <Typography component="h1" variant="h4" sx={{ fontWeight: 700, mb: 2, color: '#1976d2' }}>
-            Chọn vai trò của bạn
+          <Typography component="h1" variant="h5" sx={{ mb: 4, fontWeight: 'bold', color: 'primary.main' }}>
+            Bạn là ai?
           </Typography>
           
-          <Typography variant="body1" sx={{ mb: 4, color: 'text.secondary' }}>
-            Hãy chọn vai trò phù hợp với nhu cầu của bạn trong hệ thống
+          <Typography variant="body1" sx={{ mb: 4, textAlign: 'center' }}>
+            Vui lòng chọn vai trò phù hợp với bạn. Bạn có thể thay đổi vai trò này sau.
           </Typography>
           
-          {error && (
-            <Typography color="error" sx={{ mb: 3 }}>
-              {error}
-            </Typography>
-          )}
+          {error && <Alert severity="error" sx={{ width: '100%', mb: 3 }}>{error}</Alert>}
           
-          <Grid container spacing={3} sx={{ mb: 4 }}>
-            {roles.map((role) => (
-              <Grid item xs={12} md={4} key={role.id}>
-                <Card 
-                  sx={selectedRole === role.id ? selectedCardStyle : cardStyle}
-                  onClick={() => handleRoleSelect(role.id)}
-                >
-                  <CardActionArea sx={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', p: 2 }}>
-                    <Avatar sx={{ 
-                      width: 80, 
-                      height: 80, 
-                      mb: 2, 
-                      bgcolor: 'white',
-                      boxShadow: '0 4px 10px rgba(0, 0, 0, 0.1)'
-                    }}>
-                      {role.icon}
-                    </Avatar>
-                    <CardContent sx={{ textAlign: 'center', flexGrow: 1 }}>
-                      <Typography gutterBottom variant="h5" component="div" sx={{ fontWeight: 600 }}>
-                        {role.title}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
-                        {role.description}
-                      </Typography>
-                    </CardContent>
-                    {selectedRole === role.id && (
-                      <CheckIcon 
-                        sx={{ 
-                          position: 'absolute', 
-                          top: 16, 
-                          right: 16, 
-                          color: '#1976d2', 
-                          fontSize: 28 
-                        }} 
-                      />
-                    )}
-                  </CardActionArea>
-                </Card>
-              </Grid>
-            ))}
+          <Grid container spacing={3}>
+            <Grid item xs={12} md={6}>
+              <Card 
+                sx={{ 
+                  height: '100%', 
+                  display: 'flex', 
+                  flexDirection: 'column',
+                  transition: 'transform 0.3s, box-shadow 0.3s',
+                  '&:hover': {
+                    transform: 'translateY(-5px)',
+                    boxShadow: '0 8px 16px rgba(0,0,0,0.1)'
+                  }
+                }}
+              >
+                <CardContent sx={{ flexGrow: 1, textAlign: 'center', py: 4 }}>
+                  <SportsSoccerIcon sx={{ fontSize: 60, color: 'primary.main', mb: 2 }} />
+                  <Typography gutterBottom variant="h5" component="h2" sx={{ fontWeight: 'bold' }}>
+                    Chủ sân
+                  </Typography>
+                  <Typography>
+                    Đăng ký và quản lý sân thể thao của bạn, nhận đặt sân và quản lý lịch sử đặt sân.
+                  </Typography>
+                </CardContent>
+                <CardActions sx={{ justifyContent: 'center', pb: 3 }}>
+                  <Button 
+                    size="large" 
+                    variant="contained"
+                    onClick={() => handleRoleSelect('owner')}
+                    disabled={loading}
+                    sx={{ px: 4 }}
+                  >
+                    Tôi là chủ sân
+                  </Button>
+                </CardActions>
+              </Card>
+            </Grid>
+            
+            <Grid item xs={12} md={6}>
+              <Card 
+                sx={{ 
+                  height: '100%', 
+                  display: 'flex', 
+                  flexDirection: 'column',
+                  transition: 'transform 0.3s, box-shadow 0.3s',
+                  '&:hover': {
+                    transform: 'translateY(-5px)',
+                    boxShadow: '0 8px 16px rgba(0,0,0,0.1)'
+                  }
+                }}
+              >
+                <CardContent sx={{ flexGrow: 1, textAlign: 'center', py: 4 }}>
+                  <PersonIcon sx={{ fontSize: 60, color: 'primary.main', mb: 2 }} />
+                  <Typography gutterBottom variant="h5" component="h2" sx={{ fontWeight: 'bold' }}>
+                    Người thuê sân
+                  </Typography>
+                  <Typography>
+                    Tìm kiếm và đặt sân thể thao dễ dàng, quản lý lịch đặt sân và theo dõi lịch sử đặt.
+                  </Typography>
+                </CardContent>
+                <CardActions sx={{ justifyContent: 'center', pb: 3 }}>
+                  <Button 
+                    size="large" 
+                    variant="contained"
+                    onClick={() => handleRoleSelect('renter')}
+                    disabled={loading}
+                    sx={{ px: 4 }}
+                  >
+                    Tôi muốn thuê sân
+                  </Button>
+                </CardActions>
+              </Card>
+            </Grid>
           </Grid>
           
-          <Box sx={{ display: 'flex', justifyContent: 'center' }}>
-            <Button
-              variant="contained"
-              color="primary"
-              size="large"
-              onClick={handleConfirm}
-              disabled={!selectedRole || loading}
-              sx={{ py: 1.5, px: 5, borderRadius: 2 }}
-            >
-              {loading ? (
-                <CircularProgress size={24} color="inherit" />
-              ) : (
-                'Xác nhận vai trò'
-              )}
-            </Button>
-          </Box>
+          {/* Debug Info - Hiển thị trong môi trường phát triển */}
+          {process.env.NODE_ENV === 'development' && debugInfo}
         </Box>
       </Paper>
-      
-      <Snackbar open={!!error} autoHideDuration={6000} onClose={handleCloseError}>
-        <Alert onClose={handleCloseError} severity="error" sx={{ width: '100%' }}>
-          {error}
-        </Alert>
-      </Snackbar>
     </Container>
   );
 };

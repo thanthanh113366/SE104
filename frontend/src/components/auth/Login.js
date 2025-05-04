@@ -4,90 +4,92 @@ import {
   Button, 
   TextField, 
   Typography, 
-  Grid, 
-  Link, 
   Paper, 
   Container,
   Divider,
   IconButton,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  CircularProgress
+  InputAdornment,
+  Alert,
+  Link as MuiLink
 } from '@mui/material';
-import { Google as GoogleIcon, Visibility, VisibilityOff } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+import GoogleIcon from '@mui/icons-material/Google';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState('renter');
   const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
-
+  
   const { login, loginWithGoogle, currentUser, userDetails } = useAuth();
   const navigate = useNavigate();
-
-  // Kiểm tra xem người dùng đã đăng nhập chưa
-  useEffect(() => {
-    if (currentUser && userDetails) {
-      redirectBasedOnRole(userDetails.role);
-    }
-  }, [currentUser, userDetails]);
-
-  const redirectBasedOnRole = (role) => {
-    if (role === 'admin') {
-      navigate('/admin/dashboard');
-    } else if (role === 'owner') {
-      navigate('/owner/dashboard');
-    } else if (role === 'renter') {
-      navigate('/courts');
-    } else {
-      navigate('/select-role');
-    }
-  };
-
-  const handleEmailLogin = async (e) => {
+  
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
-    setErrorMessage('');
-
+    
+    if (!email || !password) {
+      return setError('Vui lòng nhập email và mật khẩu');
+    }
+    
     try {
+      setError('');
+      setLoading(true);
       await login(email, password);
-      
-      // Chuyển hướng sẽ được xử lý bởi useEffect khi userDetails được cập nhật
     } catch (error) {
-      console.error("Login error:", error);
-      setErrorMessage(
-        error.code === 'auth/invalid-credential' 
-          ? 'Email hoặc mật khẩu không đúng' 
-          : (error.message || 'Đăng nhập thất bại')
-      );
+      setError('Đăng nhập thất bại: ' + error.message);
+    } finally {
       setLoading(false);
     }
   };
-
+  
   const handleGoogleLogin = async () => {
-    setLoading(true);
-    setErrorMessage('');
-
     try {
-      await loginWithGoogle(role);
-      
-      // Chuyển hướng sẽ được xử lý bởi useEffect khi userDetails được cập nhật
+      setError('');
+      setLoading(true);
+      await loginWithGoogle();
     } catch (error) {
-      console.error("Google login error:", error);
-      setErrorMessage(error.message || 'Đăng nhập với Google thất bại');
+      setError('Đăng nhập với Google thất bại: ' + error.message);
+    } finally {
       setLoading(false);
     }
   };
-
+  
+  useEffect(() => {
+    if (currentUser) {
+      console.log("Login - User already logged in:", currentUser.uid);
+      
+      if (userDetails) {
+        console.log("Login - User details available:", userDetails);
+        
+        if (userDetails.role) {
+          console.log("Login - User has role:", userDetails.role);
+          if (userDetails.role === 'admin') {
+            navigate('/admin');
+          } else if (userDetails.role === 'owner') {
+            navigate('/owner');
+          } else if (userDetails.role === 'renter') {
+            navigate('/renter');
+          }
+        } else {
+          console.log("Login - User has no role, redirecting to select-role");
+          navigate('/select-role');
+        }
+      } else {
+        console.log("Login - User details not available yet");
+        setTimeout(() => {
+          navigate('/');
+        }, 500);
+      }
+    }
+  }, [currentUser, userDetails, navigate]);
+  
   return (
-    <Container component="main" maxWidth="sm" sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center' }}>
-      <Paper elevation={3} sx={{ width: '100%', padding: '40px' }}>
+    <Container component="main" maxWidth="sm">
+      <Paper elevation={3} sx={{ mt: 8, p: 4, borderRadius: 2 }}>
         <Box
           sx={{
             display: 'flex',
@@ -95,17 +97,13 @@ const Login = () => {
             alignItems: 'center',
           }}
         >
-          <Typography component="h1" variant="h4" sx={{ fontWeight: 700, mb: 4, color: '#1976d2' }}>
-            Đăng Nhập
+          <Typography component="h1" variant="h5" sx={{ mb: 3, fontWeight: 'bold', color: 'primary.main' }}>
+            Đăng nhập
           </Typography>
           
-          {errorMessage && (
-            <Typography color="error" sx={{ mb: 2 }}>
-              {errorMessage}
-            </Typography>
-          )}
+          {error && <Alert severity="error" sx={{ width: '100%', mb: 2 }}>{error}</Alert>}
           
-          <Box component="form" onSubmit={handleEmailLogin} sx={{ mt: 1, width: '100%' }}>
+          <Box component="form" onSubmit={handleSubmit} sx={{ width: '100%' }}>
             <TextField
               margin="normal"
               required
@@ -118,8 +116,8 @@ const Login = () => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               sx={{ mb: 2 }}
-              disabled={loading}
             />
+            
             <TextField
               margin="normal"
               required
@@ -131,64 +129,41 @@ const Login = () => {
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              sx={{ mb: 3 }}
-              disabled={loading}
               InputProps={{
                 endAdornment: (
-                  <IconButton
-                    onClick={() => setShowPassword(!showPassword)}
-                    edge="end"
-                    disabled={loading}
-                  >
-                    {showPassword ? <VisibilityOff /> : <Visibility />}
-                  </IconButton>
+                  <InputAdornment position="end">
+                    <IconButton
+                      aria-label="toggle password visibility"
+                      onClick={() => setShowPassword(!showPassword)}
+                      edge="end"
+                    >
+                      {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                    </IconButton>
+                  </InputAdornment>
                 ),
               }}
+              sx={{ mb: 3 }}
             />
-
-            <FormControl fullWidth sx={{ mb: 3 }}>
-              <InputLabel id="role-select-label">Vai trò</InputLabel>
-              <Select
-                labelId="role-select-label"
-                id="role-select"
-                value={role}
-                label="Vai trò"
-                onChange={(e) => setRole(e.target.value)}
-                disabled={loading}
-              >
-                <MenuItem value="admin">Quản trị viên</MenuItem>
-                <MenuItem value="owner">Chủ sân</MenuItem>
-                <MenuItem value="renter">Người thuê</MenuItem>
-              </Select>
-            </FormControl>
             
             <Button
               type="submit"
               fullWidth
               variant="contained"
+              disabled={loading}
               sx={{ 
-                mt: 3, 
-                mb: 2, 
-                padding: '12px',
-                backgroundColor: '#1976d2',
+                py: 1.5, 
+                mb: 2,
+                fontWeight: 'bold',
                 '&:hover': {
-                  backgroundColor: '#1565c0',
+                  transform: 'translateY(-2px)',
+                  transition: '0.3s',
                 }
               }}
-              disabled={loading}
             >
-              {loading ? (
-                <CircularProgress size={24} color="inherit" />
-              ) : (
-                'Đăng Nhập'
-              )}
+              {loading ? 'Đang xử lý...' : 'Đăng nhập'}
             </Button>
             
-            <Divider sx={{ my: 2 }}>
-              <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                HOẶC
-              </Typography>
-            </Divider>
+            <Divider sx={{ my: 2 }}>hoặc</Divider>
             
             <Button
               fullWidth
@@ -197,31 +172,24 @@ const Login = () => {
               onClick={handleGoogleLogin}
               disabled={loading}
               sx={{ 
-                mb: 2, 
-                padding: '12px',
-                color: '#4285F4',
-                borderColor: '#4285F4',
+                py: 1.5, 
+                mb: 2,
                 '&:hover': {
-                  borderColor: '#4285F4',
-                  backgroundColor: 'rgba(66, 133, 244, 0.04)',
+                  backgroundColor: '#f8f8f8',
                 }
               }}
             >
               Đăng nhập với Google
             </Button>
             
-            <Grid container>
-              <Grid item xs>
-                <Link href="#" variant="body2" sx={{ color: '#1976d2' }}>
-                  Quên mật khẩu?
-                </Link>
-              </Grid>
-              <Grid item>
-                <Link href="/register" variant="body2" sx={{ color: '#1976d2' }}>
-                  {"Chưa có tài khoản? Đăng ký"}
-                </Link>
-              </Grid>
-            </Grid>
+            <Box sx={{ mt: 2, textAlign: 'center' }}>
+              <Typography variant="body2">
+                Chưa có tài khoản?{' '}
+                <MuiLink component={Link} to="/register" variant="body2" sx={{ fontWeight: 'bold' }}>
+                  Đăng ký ngay
+                </MuiLink>
+              </Typography>
+            </Box>
           </Box>
         </Box>
       </Paper>

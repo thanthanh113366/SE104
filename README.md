@@ -67,6 +67,24 @@ cd backend
 npm run dev
 ```
 
+## Tạo tài khoản Admin
+
+Để tạo tài khoản admin với email "admin@example.com" và mật khẩu "admin123", thực hiện các bước sau:
+
+```bash
+# Cài đặt thư viện nếu cần
+npm install firebase
+
+# Chạy script tạo admin
+npm run setup-admin
+```
+
+Sau khi chạy script, bạn có thể đăng nhập vào hệ thống với:
+- Email: admin@example.com
+- Mật khẩu: admin123
+
+Tài khoản này đã được thiết lập với quyền admin và có thể truy cập vào Admin Dashboard để quản lý hệ thống.
+
 # SE104
 Link drive BaoCaoDeTai_SEP.28: https://drive.google.com/drive/u/0/folders/1tdr2ePP3CE-g_i_Sredy3rrfdLBmQTZY
 

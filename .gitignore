@@ -7,6 +7,8 @@
 
 # testing
 /coverage
+/frontend/coverage
+/backend/coverage
 
 # production
 /build
@@ -34,12 +36,18 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+/frontend/npm-debug.log*
+/frontend/yarn-debug.log*
+/frontend/yarn-error.log*
+/backend/npm-debug.log*
+/backend/yarn-debug.log*
+/backend/yarn-error.log*
 
 # Firebase
-firebase-debug.log*
-firebase-debug.*.log*
-firebase-adminsdk*.json
-serviceAccountKey.json
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+**/firebase-config.json
 
 # VSCode
 .vscode/ 

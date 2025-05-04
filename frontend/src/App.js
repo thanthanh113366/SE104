@@ -1,63 +1,27 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { Box, CssBaseline } from '@mui/material';
+import React, { useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Box, CssBaseline, CircularProgress } from '@mui/material';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 
 // Components
 import Login from './components/auth/Login';
 import Register from './components/auth/Register';
 import RoleSelection from './components/auth/RoleSelection';
-import AdminDashboard from './components/admin/Dashboard';
-import OwnerDashboard from './components/owner/Dashboard';
-import CreateCourt from './components/owner/CreateCourt';
-import EditCourt from './components/owner/EditCourt';
-import CourtListing from './components/renter/CourtListing';
+import AdminDashboard from './components/admin/AdminDashboard';
+import OwnerDashboard from './components/owner/OwnerDashboard';
+import RenterDashboard from './components/renter/RenterDashboard';
 
-// Context
+// AuthContext
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 
-// Protected route component
-const ProtectedRoute = ({ children, requiredRole }) => {
-  const { currentUser, userDetails, loading } = useAuth();
-  
-  if (loading) {
-    return <Box sx={{ p: 3 }}>Loading...</Box>;
-  }
-  
-  // If user is not logged in, redirect to login
-  if (!currentUser) {
-    return <Navigate to="/login" />;
-  }
-  
-  // If requiredRole is specified and user doesn't have that role, redirect
-  if (requiredRole && userDetails?.role !== requiredRole) {
-    // Redirect based on user's actual role
-    if (userDetails?.role === 'admin') {
-      return <Navigate to="/admin/dashboard" />;
-    } else if (userDetails?.role === 'owner') {
-      return <Navigate to="/owner/dashboard" />;
-    } else if (userDetails?.role === 'renter') {
-      return <Navigate to="/courts" />;
-    } else {
-      // If no role yet, show role selection
-      return <Navigate to="/select-role" />;
-    }
-  }
-  
-  return children;
-};
-
-// Create a theme
+// Tạo theme
 const theme = createTheme({
   palette: {
     primary: {
-      main: '#1976d2',
+      main: '#2e7d32', // Green color for sports theme
     },
     secondary: {
-      main: '#dc004e',
-    },
-    background: {
-      default: '#f5f5f5',
+      main: '#ff9800',
     },
   },
   typography: {
@@ -66,25 +30,91 @@ const theme = createTheme({
       'Arial',
       'sans-serif',
     ].join(','),
+    h4: {
+      fontWeight: 600,
+    },
+    h5: {
+      fontWeight: 600,
+    },
   },
   components: {
     MuiButton: {
       styleOverrides: {
         root: {
+          borderRadius: 8,
           textTransform: 'none',
-          borderRadius: '8px',
+          fontWeight: 500,
         },
       },
     },
-    MuiPaper: {
+    MuiCard: {
       styleOverrides: {
         root: {
-          borderRadius: '12px',
+          borderRadius: 12,
         },
       },
     },
   },
 });
+
+// ProtectedRoute component
+const ProtectedRoute = ({ children, requiredRole }) => {
+  const { currentUser, userDetails, loading } = useAuth();
+  const location = useLocation();
+  
+  console.log("=== ProtectedRoute Check ===");
+  console.log("URL hiện tại:", location.pathname);
+  console.log("Yêu cầu vai trò:", requiredRole);
+  console.log("Người dùng hiện tại:", currentUser?.uid);
+  console.log("Thông tin chi tiết:", userDetails);
+  console.log("Đang tải:", loading);
+  
+  if (loading) {
+    console.log("Đang tải thông tin người dùng...");
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+  
+  if (!currentUser) {
+    console.log("Chưa đăng nhập, chuyển hướng đến /login");
+    return <Navigate to="/login" />;
+  }
+  
+  // Kiểm tra vai trò
+  if (requiredRole) {
+    // Nếu chưa chọn vai trò
+    if (!userDetails || !userDetails.role) {
+      console.log("Chưa có vai trò, chuyển hướng đến /select-role");
+      return <Navigate to="/select-role" />;
+    }
+    
+    // Nếu không đúng vai trò
+    if (userDetails.role !== requiredRole) {
+      console.log("Vai trò không khớp, hiện tại:", userDetails.role, "yêu cầu:", requiredRole);
+      // Chuyển hướng dựa trên vai trò hiện tại
+      if (userDetails.role === 'admin') {
+        console.log("Chuyển hướng đến /admin");
+        return <Navigate to="/admin" />;
+      }
+      if (userDetails.role === 'owner') {
+        console.log("Chuyển hướng đến /owner");
+        return <Navigate to="/owner" />;
+      }
+      if (userDetails.role === 'renter') {
+        console.log("Chuyển hướng đến /renter");
+        return <Navigate to="/renter" />;
+      }
+    } else {
+      console.log("Vai trò khớp, cho phép truy cập:", requiredRole);
+    }
+  }
+  
+  console.log("ProtectedRoute: Cho phép truy cập");
+  return children;
+};
 
 function App() {
   return (
@@ -92,82 +122,94 @@ function App() {
       <CssBaseline />
       <AuthProvider>
         <Router>
-          <Box sx={{ 
-            minHeight: '100vh',
-            display: 'flex',
-            flexDirection: 'column',
-            bgcolor: 'background.default'
-          }}>
-            <Routes>
-              {/* Public routes */}
-              <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
-              
-              {/* Role selection (Protected, only for authenticated users without a role) */}
-              <Route 
-                path="/select-role" 
-                element={
-                  <ProtectedRoute>
-                    <RoleSelection />
-                  </ProtectedRoute>
-                } 
-              />
-              
-              {/* Admin routes */}
-              <Route 
-                path="/admin/dashboard" 
-                element={
-                  <ProtectedRoute requiredRole="admin">
-                    <AdminDashboard />
-                  </ProtectedRoute>
-                } 
-              />
-              
-              {/* Owner routes */}
-              <Route 
-                path="/owner/dashboard" 
-                element={
-                  <ProtectedRoute requiredRole="owner">
-                    <OwnerDashboard />
-                  </ProtectedRoute>
-                } 
-              />
-              <Route 
-                path="/owner/courts/create" 
-                element={
-                  <ProtectedRoute requiredRole="owner">
-                    <CreateCourt />
-                  </ProtectedRoute>
-                } 
-              />
-              <Route 
-                path="/owner/courts/edit/:courtId" 
-                element={
-                  <ProtectedRoute requiredRole="owner">
-                    <EditCourt />
-                  </ProtectedRoute>
-                } 
-              />
-              
-              {/* Renter routes */}
-              <Route 
-                path="/courts" 
-                element={
-                  <ProtectedRoute requiredRole="renter">
-                    <CourtListing />
-                  </ProtectedRoute>
-                } 
-              />
-              
-              {/* Default redirect */}
-              <Route path="/" element={<Navigate to="/login" />} />
-              <Route path="*" element={<Navigate to="/login" />} />
-            </Routes>
-          </Box>
+          <Routes>
+            {/* Public routes */}
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
+            
+            {/* Auth required routes */}
+            <Route path="/select-role" element={
+              <ProtectedRoute>
+                <RoleSelection />
+              </ProtectedRoute>
+            } />
+            
+            {/* Role-specific routes */}
+            <Route path="/admin/*" element={
+              <ProtectedRoute requiredRole="admin">
+                <AdminDashboard />
+              </ProtectedRoute>
+            } />
+            
+            <Route path="/owner/*" element={
+              <ProtectedRoute requiredRole="owner">
+                <OwnerDashboard />
+              </ProtectedRoute>
+            } />
+            
+            <Route path="/renter/*" element={
+              <ProtectedRoute requiredRole="renter">
+                <RenterDashboard />
+              </ProtectedRoute>
+            } />
+            
+            {/* Smart redirect route */}
+            <Route path="/" element={<SmartRedirect />} />
+          </Routes>
         </Router>
       </AuthProvider>
     </ThemeProvider>
   );
 }
 
-export default App; 
+// Smart redirect component
+const SmartRedirect = () => {
+  const { currentUser, userDetails, loading } = useAuth();
+  const navigate = useNavigate();
+  
+  console.log("SmartRedirect - Checking user state");
+  console.log("currentUser:", currentUser);
+  console.log("userDetails:", userDetails);
+  console.log("loading:", loading);
+  
+  useEffect(() => {
+    if (loading) return;
+    
+    if (!currentUser) {
+      console.log("SmartRedirect - No user, redirecting to login");
+      navigate('/login');
+      return;
+    }
+    
+    if (!userDetails || !userDetails.role) {
+      console.log("SmartRedirect - User has no role, redirecting to select-role");
+      navigate('/select-role');
+      return;
+    }
+    
+    // Redirect based on role
+    console.log("SmartRedirect - User has role:", userDetails.role);
+    if (userDetails.role === 'admin') {
+      navigate('/admin');
+    } else if (userDetails.role === 'owner') {
+      navigate('/owner');
+    } else if (userDetails.role === 'renter') {
+      navigate('/renter');
+    } else {
+      console.log("SmartRedirect - Unknown role, redirecting to select-role");
+      navigate('/select-role');
+    }
+  }, [currentUser, userDetails, loading, navigate]);
+  
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+  
+  return null;
+};
+
+export default App;
