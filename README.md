@@ -20,16 +20,15 @@ A web application for managing sports facility bookings, allowing users to view 
 
 ## Security Notice / Lưu Ý Bảo Mật
 **IMPORTANT / QUAN TRỌNG**: 
-- Never commit your `.env` files or any files containing API keys, secrets, or sensitive information to Git.
-- Không bao giờ commit các file `.env` hoặc bất kỳ file nào chứa API keys, secrets, hoặc thông tin nhạy cảm lên Git.
-- Use `.env.example` files to show which environment variables are needed, but do not include actual values.
-- Sử dụng file `.env.example` để chỉ ra những biến môi trường cần thiết, nhưng không bao gồm giá trị thực.
+- Never commit files containing API keys, secrets, or sensitive information to Git.
+- Không bao giờ commit các file chứa API keys, secrets, hoặc thông tin nhạy cảm lên Git.
+- The `firebase.config.js` file is added to `.gitignore` to prevent accidental commits.
+- File `firebase.config.js` đã được thêm vào `.gitignore` để ngăn chặn việc vô tình commit.
 
 ## Getting Started / Bắt Đầu
 1. Clone the repository / Clone kho lưu trữ
 2. Install dependencies / Cài đặt các phụ thuộc
-3. Create `.env` files in both frontend and backend directories based on the provided `.env.example` files
-   / Tạo file `.env` trong cả thư mục frontend và backend dựa trên file `.env.example` được cung cấp
+3. Set up Firebase configuration files / Thiết lập các file cấu hình Firebase
 4. Run the application / Chạy ứng dụng
 
 ## Installation / Cài Đặt
@@ -41,20 +40,18 @@ npm install
 # Install backend dependencies / Cài đặt phụ thuộc backend
 cd backend
 npm install
-
-# Set up environment variables / Thiết lập biến môi trường
-cp frontend/.env.example frontend/.env
-cp backend/.env.example backend/.env
-# Then edit the .env files with your actual values / Sau đó chỉnh sửa files .env với giá trị thực của bạn
 ```
 
 ## Firebase Setup / Thiết Lập Firebase
 1. Create a Firebase project at https://console.firebase.google.com/
 2. Enable Authentication, Firestore, and Storage services
 3. Get your Firebase configuration from Project Settings > General
-4. Add the configuration to your frontend `.env` file
-5. For backend, generate a service account key from Project Settings > Service accounts
-6. Save the key file securely and reference it in your backend `.env` file
+4. For frontend:
+   - Copy `frontend/src/firebase.config.example.js` to `frontend/src/firebase.config.js`
+   - Update the configuration in `firebase.config.js` with your Firebase details
+5. For backend:
+   - Generate a service account key from Project Settings > Service accounts
+   - Save the key file securely and reference it in your backend setup
 
 ## Running the Application / Chạy Ứng Dụng
 ```bash

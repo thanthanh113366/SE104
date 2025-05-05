@@ -1,70 +1,56 @@
-# Getting Started with Create React App
+# Sports Facilities Booking - Frontend
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Hệ thống quản lý đặt sân thể thao trực tuyến - Phần frontend xây dựng bằng React.
 
-## Available Scripts
+## Cài đặt
 
-In the project directory, you can run:
+```bash
+# Clone repository
+git clone <repository-url>
 
-### `npm start`
+# Di chuyển vào thư mục frontend
+cd frontend
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+# Cài đặt dependencies
+npm install
+```
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## Cấu hình Firebase
 
-### `npm test`
+Trước khi chạy dự án, bạn cần phải cấu hình Firebase:
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+1. Sao chép file `src/firebase.config.example.js` thành `src/firebase.config.js`
+2. Điền thông tin Firebase của bạn vào các trường trong file `firebase.config.js`
 
-### `npm run build`
+**Lưu ý**: File `firebase.config.js` đã được thêm vào `.gitignore` để bảo mật thông tin API keys.
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+## Khởi chạy ứng dụng
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+```bash
+# Khởi chạy ứng dụng ở chế độ development
+npm start
+```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+Ứng dụng sẽ chạy tại [http://localhost:3000](http://localhost:3000).
 
-### `npm run eject`
+## Cấu trúc thư mục
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+```
+src/
+├── components/     # Các thành phần UI
+├── contexts/       # React Context cho quản lý state
+├── services/       # Services giao tiếp với backend/Firebase
+├── utils/          # Các tiện ích
+├── App.js          # Component gốc
+├── firebase.js     # Cấu hình Firebase
+└── index.js        # Điểm khởi đầu ứng dụng
+```
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+## Xây dựng cho production
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+```bash
+# Tạo bản build production
+npm run build
+```
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+Build được tạo ra trong thư mục `build` có thể triển khai trên các dịch vụ hosting.
