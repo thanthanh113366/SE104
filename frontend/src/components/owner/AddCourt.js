@@ -10,9 +10,15 @@ import {
   FormControlLabel,
   Switch,
   Divider,
-  InputAdornment
+  InputAdornment,
+  Alert,
+  Snackbar,
+  CircularProgress
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { db } from '../../firebase';
+import { useAuth } from '../../contexts/AuthContext';
 
 // Icons
 import SaveIcon from '@mui/icons-material/Save';
@@ -24,6 +30,10 @@ import MoneyIcon from '@mui/icons-material/Money';
 
 const AddCourt = () => {
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
   
   const [courtData, setCourtData] = useState({
     name: '',
@@ -45,13 +55,62 @@ const AddCourt = () => {
     });
   };
   
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    // Xử lý thêm sân (trong thực tế sẽ gọi API)
-    console.log('Submitted court data:', courtData);
     
-    // Chuyển về trang quản lý sân
-    navigate('/owner/courts');
+    if (!currentUser) {
+      setError('Bạn cần đăng nhập để thêm sân');
+      return;
+    }
+    
+    try {
+      setLoading(true);
+      setError('');
+      
+      // Chuyển đổi facilities từ chuỗi thành mảng
+      const facilitiesArray = courtData.facilities
+        ? courtData.facilities.split(',').map(item => item.trim())
+        : [];
+      
+      // Chuyển đổi price từ chuỗi thành số
+      const priceNumber = parseInt(courtData.price, 10);
+      
+      // Dữ liệu sân để lưu vào Firestore
+      const courtToSave = {
+        name: courtData.name,
+        address: courtData.address,
+        description: courtData.description,
+        sport: courtData.sport,
+        price: priceNumber,
+        openTime: courtData.openTime,
+        closeTime: courtData.closeTime,
+        facilities: facilitiesArray,
+        status: courtData.isAvailable ? 'active' : 'inactive',
+        ownerId: currentUser.uid,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        // Thêm trường image mẫu để hiển thị
+        image: 'https://images.unsplash.com/photo-1459865264687-595d652de67e?q=80&w=800&auto=format&fit=crop'
+      };
+      
+      console.log('Lưu dữ liệu sân vào Firestore:', courtToSave);
+      
+      // Lưu vào collection "courts" trong Firestore
+      const docRef = await addDoc(collection(db, 'courts'), courtToSave);
+      
+      console.log('Đã thêm sân thành công với ID:', docRef.id);
+      setSuccess(true);
+      
+      // Đợi 1 giây rồi chuyển về trang quản lý sân
+      setTimeout(() => {
+        navigate('/owner/courts');
+      }, 1000);
+    } catch (error) {
+      console.error('Lỗi khi thêm sân:', error);
+      setError('Có lỗi xảy ra khi thêm sân. Vui lòng thử lại.');
+    } finally {
+      setLoading(false);
+    }
   };
   
   return (
@@ -61,6 +120,8 @@ const AddCourt = () => {
           Thêm sân thể thao mới
         </Typography>
       </Box>
+      
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       
       <Paper sx={{ p: 3, borderRadius: 2 }}>
         <form onSubmit={handleSubmit}>
@@ -229,6 +290,7 @@ const AddCourt = () => {
                   color="error"
                   startIcon={<CancelIcon />}
                   onClick={() => navigate('/owner/courts')}
+                  disabled={loading}
                 >
                   Hủy
                 </Button>
@@ -236,15 +298,27 @@ const AddCourt = () => {
                   type="submit"
                   variant="contained"
                   color="primary"
-                  startIcon={<SaveIcon />}
+                  startIcon={loading ? <CircularProgress size={24} /> : <SaveIcon />}
+                  disabled={loading}
                 >
-                  Lưu và thêm sân
+                  {loading ? 'Đang lưu...' : 'Lưu và thêm sân'}
                 </Button>
               </Box>
             </Grid>
           </Grid>
         </form>
       </Paper>
+      
+      <Snackbar
+        open={success}
+        autoHideDuration={3000}
+        onClose={() => setSuccess(false)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert severity="success" sx={{ width: '100%' }}>
+          Đã thêm sân thành công!
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

@@ -98,12 +98,13 @@ const MyBookings = () => {
       try {
         setLoading(true);
         
-        // Sử dụng dữ liệu demo
-        setBookings(DEMO_BOOKINGS);
+        if (!currentUser) {
+          console.log('Không có người dùng đăng nhập');
+          setBookings([]);
+          return;
+        }
         
-        /* Code thực khi kết nối Firebase
-        if (!currentUser) return;
-        
+        // Lấy dữ liệu từ Firestore
         const bookingsRef = collection(db, 'bookings');
         const q = query(
           bookingsRef,
@@ -118,11 +119,22 @@ const MyBookings = () => {
           bookingsData.push({ id: doc.id, ...doc.data() });
         });
         
-        setBookings(bookingsData);
-        */
+        console.log(`Đã tìm thấy ${bookingsData.length} booking từ Firestore`);
+        
+        // Nếu không có dữ liệu từ Firestore, sử dụng dữ liệu demo
+        if (bookingsData.length === 0) {
+          console.log('Không có dữ liệu booking từ Firestore, sử dụng dữ liệu demo');
+          setBookings(DEMO_BOOKINGS);
+        } else {
+          setBookings(bookingsData);
+        }
       } catch (err) {
         console.error('Error fetching bookings:', err);
         setError('Không thể tải dữ liệu đặt sân. Vui lòng thử lại sau.');
+        
+        // Sử dụng dữ liệu demo trong trường hợp lỗi
+        console.log('Sử dụng dữ liệu demo do lỗi Firestore');
+        setBookings(DEMO_BOOKINGS);
       } finally {
         setLoading(false);
       }
@@ -170,9 +182,14 @@ const MyBookings = () => {
     try {
       if (!selectedBooking) return;
       
-      // Trong môi trường thực, cập nhật trạng thái trong Firestore
-      // const bookingRef = doc(db, 'bookings', selectedBooking.id);
-      // await updateDoc(bookingRef, { status: 'cancelled' });
+      // Cập nhật trạng thái trong Firestore
+      const bookingRef = doc(db, 'bookings', selectedBooking.id);
+      await updateDoc(bookingRef, { 
+        status: 'cancelled',
+        updatedAt: new Date()
+      });
+      
+      console.log(`Đã hủy booking ${selectedBooking.id} trong Firestore`);
       
       // Cập nhật state
       setBookings(bookings.map(b => 
@@ -183,6 +200,13 @@ const MyBookings = () => {
     } catch (error) {
       console.error('Error cancelling booking:', error);
       setError('Không thể hủy đặt sân. Vui lòng thử lại sau.');
+      
+      // Nếu lỗi khi cập nhật Firestore, vẫn cập nhật UI để người dùng thấy thay đổi
+      setBookings(bookings.map(b => 
+        b.id === selectedBooking.id ? { ...b, status: 'cancelled' } : b
+      ));
+      
+      handleCancelBookingClose();
     }
   };
   

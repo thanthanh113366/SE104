@@ -132,32 +132,54 @@ const SearchCourts = () => {
       try {
         setLoading(true);
         
-        // Trong môi trường thực tế, bạn sẽ truy vấn từ Firestore
-        // Hiện tại sử dụng dữ liệu demo
-        setCourts(DEMO_COURTS);
-        setFilteredCourts(DEMO_COURTS);
-        
-        /* 
-        // Code mẫu để lấy dữ liệu từ Firestore
+        // Lấy dữ liệu từ Firestore với truy vấn đơn giản hơn
         const courtsRef = collection(db, 'courts');
-        const q = query(
-          courtsRef,
-          orderBy('createdAt', 'desc'),
-          where('status', '==', 'active'),
-          limit(20)
-        );
-        const querySnapshot = await getDocs(q);
+        
+        // Chỉ lấy tất cả các sân mà không có điều kiện nào
+        console.log('Đang truy vấn collection courts...');
+        const querySnapshot = await getDocs(courtsRef);
+        
         const courtsData = [];
+        console.log('Số lượng document tìm thấy:', querySnapshot.size);
+        
         querySnapshot.forEach((doc) => {
-          courtsData.push({ id: doc.id, ...doc.data() });
+          const data = doc.data();
+          console.log("Sân:", doc.id, data.name || 'Chưa có tên');
+          
+          // Chuyển đổi dữ liệu, đảm bảo các trường cần thiết luôn tồn tại
+          courtsData.push({ 
+            id: doc.id, 
+            ...data,
+            name: data.name || 'Chưa có tên',
+            address: data.address || 'Chưa có địa chỉ',
+            price: data.price || 0,
+            sport: data.sport || 'Không xác định',
+            facilities: Array.isArray(data.facilities) ? data.facilities : [],
+            image: data.image || 'https://images.unsplash.com/photo-1459865264687-595d652de67e?q=80&w=800&auto=format&fit=crop',
+            rating: data.rating || 0
+          });
         });
-        setCourts(courtsData);
-        setFilteredCourts(courtsData);
-        */
+        
+        console.log('Tổng số sân tìm thấy:', courtsData.length);
+        
+        // Nếu không có dữ liệu từ Firestore, sử dụng dữ liệu demo
+        if (courtsData.length === 0) {
+          console.log('Không tìm thấy dữ liệu từ Firestore, sử dụng dữ liệu demo');
+          setCourts(DEMO_COURTS);
+          setFilteredCourts(DEMO_COURTS);
+        } else {
+          console.log('Đã tìm thấy', courtsData.length, 'sân từ Firestore');
+          setCourts(courtsData);
+          setFilteredCourts(courtsData);
+        }
         
       } catch (error) {
-        console.error('Error fetching courts:', error);
+        console.error('Lỗi truy vấn Firestore:', error);
+        console.error('Chi tiết lỗi:', error.code, error.message);
         setError('Không thể tải dữ liệu sân. Vui lòng thử lại sau.');
+        // Sử dụng dữ liệu demo khi có lỗi
+        setCourts(DEMO_COURTS);
+        setFilteredCourts(DEMO_COURTS);
       } finally {
         setLoading(false);
       }

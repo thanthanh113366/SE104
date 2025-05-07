@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firestore Court Debugger</title>
+    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.9.0/firebase-firestore-compat.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        h1 {
+            color: #2e7d32;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .court-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .court-card {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            background-color: white;
+            transition: transform 0.2s;
+        }
+        .court-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .court-image {
+            width: 100%;
+            height: 180px;
+            object-fit: cover;
+            border-radius: 4px;
+        }
+        .court-name {
+            font-size: 18px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .court-info {
+            margin-bottom: 5px;
+            color: #555;
+        }
+        .tag {
+            display: inline-block;
+            background-color: #e8f5e9;
+            color: #2e7d32;
+            border-radius: 4px;
+            padding: 3px 8px;
+            margin-right: 5px;
+            margin-bottom: 5px;
+            font-size: 12px;
+        }
+        .button {
+            background-color: #2e7d32;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        .loading {
+            text-align: center;
+            padding: 30px;
+            font-size: 18px;
+            color: #666;
+        }
+        .court-id {
+            font-size: 12px;
+            color: #999;
+            margin-bottom: 10px;
+        }
+        pre {
+            background-color: #f7f7f7;
+            padding: 10px;
+            border-radius: 4px;
+            overflow: auto;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Firestore Court Debugger</h1>
+        
+        <div class="card">
+            <h2>Controls</h2>
+            <button id="refreshBtn" class="button">Refresh Data</button>
+            <button id="addSampleBtn" class="button">Add Sample Courts</button>
+            <button id="clearBtn" class="button">Clear All Courts</button>
+        </div>
+        
+        <div class="card">
+            <h2>Courts Collection</h2>
+            <div id="courtsCount">Loading...</div>
+            <div id="courtsContainer" class="court-grid">
+                <div class="loading">Loading courts data...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Cấu hình Firebase (sẽ được thay thế bằng cấu hình thực)
+        const firebaseConfig = {
+            apiKey: "AIzaSyDUpwKOocg3VOZlyMO2_nfymoNcUjx0YuA",
+            authDomain: "se104-85ce1.firebaseapp.com",
+            projectId: "se104-85ce1",
+            storageBucket: "se104-85ce1.appspot.com",
+            messagingSenderId: "733364175434",
+            appId: "1:733364175434:web:feaab1162c001516939cb3",
+            measurementId: "G-9LCPER6VFE"
+        };
+
+        // Khởi tạo Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        
+        // Dữ liệu mẫu
+        const SAMPLE_COURTS = [
+            {
+                name: 'Sân bóng đá Mini Thủ Đức',
+                address: '123 Võ Văn Ngân, Thủ Đức, TP.HCM',
+                sport: 'football',
+                price: 250000,
+                rating: 4.5,
+                image: 'https://images.unsplash.com/photo-1459865264687-595d652de67e?q=80&w=800&auto=format&fit=crop',
+                facilities: ['Đèn chiếu sáng', 'Phòng thay đồ', 'Wifi'],
+                openTime: '06:00',
+                closeTime: '22:00',
+                description: 'Sân bóng đá cỏ nhân tạo 5 người, có mái che, hệ thống đèn chiếu sáng hiện đại.',
+                status: 'active',
+                ownerId: 'system',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            },
+            {
+                name: 'Sân cầu lông Tân Bình',
+                address: '456 Hoàng Văn Thụ, Tân Bình, TP.HCM',
+                sport: 'badminton',
+                price: 120000,
+                rating: 4.2,
+                image: 'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?q=80&w=800&auto=format&fit=crop',
+                facilities: ['Phòng thay đồ', 'Nước uống'],
+                openTime: '07:00',
+                closeTime: '21:00',
+                description: 'Sân cầu lông trong nhà với tiêu chuẩn thi đấu, mặt sân chất lượng cao.',
+                status: 'active',
+                ownerId: 'system',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            },
+            {
+                name: 'Sân bóng rổ Quận 1',
+                address: '789 Nguyễn Huệ, Quận 1, TP.HCM',
+                sport: 'basketball',
+                price: 180000,
+                rating: 4.8,
+                image: 'https://images.unsplash.com/photo-1505666287802-931dc83a0fe4?q=80&w=800&auto=format&fit=crop',
+                facilities: ['Đèn chiếu sáng', 'Phòng thay đồ', 'Chỗ đậu xe'],
+                openTime: '06:30',
+                closeTime: '22:30',
+                description: 'Sân bóng rổ ngoài trời, mặt sân chất lượng cao.',
+                status: 'active',
+                ownerId: 'system',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+            }
+        ];
+        
+        // Tải dữ liệu sân
+        function loadCourts() {
+            const courtsContainer = document.getElementById('courtsContainer');
+            const courtsCount = document.getElementById('courtsCount');
+            
+            courtsContainer.innerHTML = '<div class="loading">Loading courts data...</div>';
+            
+            db.collection('courts').get()
+                .then((snapshot) => {
+                    courtsCount.textContent = `Found ${snapshot.size} courts in the database`;
+                    
+                    if (snapshot.empty) {
+                        courtsContainer.innerHTML = '<p>No courts found in the database.</p>';
+                        return;
+                    }
+                    
+                    courtsContainer.innerHTML = '';
+                    snapshot.forEach((doc) => {
+                        const court = doc.data();
+                        const courtCard = document.createElement('div');
+                        courtCard.className = 'court-card';
+                        
+                        let facilities = 'None';
+                        if (court.facilities && court.facilities.length > 0) {
+                            facilities = court.facilities.map(f => 
+                                `<span class="tag">${f}</span>`).join('');
+                        }
+                        
+                        courtCard.innerHTML = `
+                            <img src="${court.image || 'https://via.placeholder.com/300x180?text=No+Image'}" 
+                                alt="${court.name}" class="court-image">
+                            <div class="court-name">${court.name || 'Unnamed Court'}</div>
+                            <div class="court-id">ID: ${doc.id}</div>
+                            <div class="court-info"><strong>Sport:</strong> ${court.sport || 'Unknown'}</div>
+                            <div class="court-info"><strong>Address:</strong> ${court.address || 'No address'}</div>
+                            <div class="court-info"><strong>Price:</strong> ${court.price?.toLocaleString('vi-VN') || 0} VND/hour</div>
+                            <div class="court-info"><strong>Rating:</strong> ${court.rating || 'No rating'}</div>
+                            <div class="court-info"><strong>Status:</strong> ${court.status || 'Unknown'}</div>
+                            <div class="court-info"><strong>Hours:</strong> ${court.openTime || '?'} - ${court.closeTime || '?'}</div>
+                            <div class="court-info"><strong>Facilities:</strong></div>
+                            <div>${facilities}</div>
+                            <details>
+                                <summary>Full Data</summary>
+                                <pre>${JSON.stringify(court, null, 2)}</pre>
+                            </details>
+                        `;
+                        
+                        courtsContainer.appendChild(courtCard);
+                    });
+                })
+                .catch((error) => {
+                    console.error('Error getting courts:', error);
+                    courtsContainer.innerHTML = `<p>Error loading courts: ${error.message}</p>`;
+                });
+        }
+        
+        // Thêm sân mẫu
+        async function addSampleCourts() {
+            if (!confirm('Add sample courts to Firestore?')) return;
+            
+            for (const court of SAMPLE_COURTS) {
+                try {
+                    await db.collection('courts').add(court);
+                    console.log(`Added court: ${court.name}`);
+                } catch (error) {
+                    console.error(`Error adding court ${court.name}:`, error);
+                }
+            }
+            
+            alert('Sample courts added successfully!');
+            loadCourts();
+        }
+        
+        // Xóa tất cả sân
+        async function clearAllCourts() {
+            if (!confirm('WARNING: This will delete ALL courts in the database. Continue?')) return;
+            if (!confirm('Are you REALLY sure? This cannot be undone!')) return;
+            
+            const snapshot = await db.collection('courts').get();
+            
+            const batch = db.batch();
+            snapshot.forEach((doc) => {
+                batch.delete(doc.ref);
+            });
+            
+            await batch.commit();
+            alert(`Deleted ${snapshot.size} courts!`);
+            loadCourts();
+        }
+        
+        // Event listeners
+        document.getElementById('refreshBtn').addEventListener('click', loadCourts);
+        document.getElementById('addSampleBtn').addEventListener('click', addSampleCourts);
+        document.getElementById('clearBtn').addEventListener('click', clearAllCourts);
+        
+        // Load courts on page load
+        document.addEventListener('DOMContentLoaded', loadCourts);
+    </script>
+</body>
+</html> 

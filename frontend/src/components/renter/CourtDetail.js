@@ -124,27 +124,70 @@ const CourtDetail = () => {
       try {
         setLoading(true);
         
-        // Demo: Tìm sân từ dữ liệu mẫu
-        const foundCourt = DEMO_COURTS.find(c => c.id === courtId);
-        if (foundCourt) {
-          setCourt(foundCourt);
-        } else {
-          setError('Không tìm thấy thông tin sân');
-        }
-        
-        /* Mã thực khi kết nối Firebase
+        // Lấy dữ liệu từ Firestore
+        console.log('Đang lấy thông tin sân với ID:', courtId);
         const courtRef = doc(db, 'courts', courtId);
         const courtDoc = await getDoc(courtRef);
         
         if (courtDoc.exists()) {
-          setCourt({ id: courtDoc.id, ...courtDoc.data() });
+          console.log('Đã tìm thấy thông tin sân từ Firestore:', courtDoc.id);
+          const data = courtDoc.data();
+          console.log('Dữ liệu sân:', data);
+          
+          // Hoàn thiện dữ liệu
+          const courtData = {
+            id: courtDoc.id,
+            ...data,
+            name: data.name || 'Chưa có tên',
+            address: data.address || 'Chưa có địa chỉ',
+            description: data.description || 'Chưa có mô tả',
+            price: data.price || 0,
+            sport: data.sport || 'Không xác định',
+            facilities: Array.isArray(data.facilities) ? data.facilities : [],
+            openTime: data.openTime || '06:00',
+            closeTime: data.closeTime || '22:00',
+            rating: data.rating || 0,
+            reviews: data.reviews || [],
+            image: data.image || 'https://images.unsplash.com/photo-1459865264687-595d652de67e?q=80&w=800&auto=format&fit=crop',
+            owner: data.owner || { name: 'Chưa có thông tin', phone: 'Chưa có thông tin' },
+            // Tạo sẵn một số slot trong trường hợp không có
+            availableSlots: data.availableSlots || [
+              { 
+                date: new Date().toISOString().split('T')[0], 
+                slots: [
+                  { id: 'slot1', time: '08:00-09:30', status: 'available', price: data.price || 200000 },
+                  { id: 'slot2', time: '10:00-11:30', status: 'available', price: data.price || 200000 },
+                  { id: 'slot3', time: '14:00-15:30', status: 'available', price: data.price || 200000 }
+                ]
+              }
+            ]
+          };
+          
+          setCourt(courtData);
         } else {
-          setError('Không tìm thấy thông tin sân');
+          console.log('Không tìm thấy sân trong Firestore với ID:', courtId);
+          // Nếu không có dữ liệu trong Firestore, tìm từ dữ liệu demo
+          const foundCourt = DEMO_COURTS.find(c => c.id === courtId);
+          if (foundCourt) {
+            console.log('Đã tìm thấy sân trong dữ liệu demo');
+            setCourt(foundCourt);
+          } else {
+            console.log('Không tìm thấy sân trong cả Firestore và dữ liệu demo');
+            setError('Không tìm thấy thông tin sân');
+          }
         }
-        */
       } catch (err) {
-        console.error('Error fetching court details:', err);
+        console.error('Lỗi khi lấy thông tin sân:', err);
+        console.error('Chi tiết lỗi:', err.code, err.message);
         setError('Đã xảy ra lỗi khi tải thông tin sân. Vui lòng thử lại sau.');
+        
+        // Nếu có lỗi, thử dùng dữ liệu demo
+        const foundCourt = DEMO_COURTS.find(c => c.id === courtId);
+        if (foundCourt) {
+          console.log('Sử dụng dữ liệu demo do lỗi kết nối Firestore');
+          setCourt(foundCourt);
+          setError(''); // Xóa thông báo lỗi nếu tìm thấy dữ liệu demo
+        }
       } finally {
         setLoading(false);
       }

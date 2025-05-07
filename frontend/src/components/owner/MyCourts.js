@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Box, 
   Typography, 
@@ -22,9 +22,14 @@ import {
   Divider,
   Paper,
   TextField,
-  InputAdornment
+  InputAdornment,
+  CircularProgress,
+  Alert
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import { collection, query, where, getDocs, doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { db } from '../../firebase';
+import { useAuth } from '../../contexts/AuthContext';
 
 // Icons
 import AddIcon from '@mui/icons-material/Add';
@@ -127,9 +132,19 @@ const SAMPLE_COURTS = [
   }
 ];
 
+// Map thể loại sân
+const SPORT_NAMES = {
+  'football': 'Bóng đá',
+  'basketball': 'Bóng rổ',
+  'tennis': 'Tennis',
+  'badminton': 'Cầu lông',
+  'volleyball': 'Bóng chuyền'
+};
+
 const MyCourts = () => {
   const navigate = useNavigate();
-  const [courts, setCourts] = useState(SAMPLE_COURTS);
+  const { currentUser } = useAuth();
+  const [courts, setCourts] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterSport, setFilterSport] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -137,6 +152,100 @@ const MyCourts = () => {
   const [selectedCourt, setSelectedCourt] = useState(null);
   const [anchorEl, setAnchorEl] = useState(null);
   const [sortOption, setSortOption] = useState('name-asc');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
+  
+  // Fetch courts from Firestore
+  useEffect(() => {
+    const fetchCourts = async () => {
+      if (!currentUser) {
+        setLoading(false);
+        return;
+      }
+      
+      try {
+        setLoading(true);
+        console.log('Đang lấy danh sách sân của người dùng với UID:', currentUser.uid);
+        
+        // Create query for courts owned by current user
+        const courtsRef = collection(db, 'courts');
+        console.log('Đã tạo reference đến collection courts');
+        
+        // Query với ownerId
+        const q = query(courtsRef, where('ownerId', '==', currentUser.uid));
+        console.log('Đã tạo truy vấn với điều kiện ownerId ==', currentUser.uid);
+        
+        // Execute query
+        console.log('Đang thực hiện truy vấn...');
+        const querySnapshot = await getDocs(q);
+        console.log('Số lượng document tìm thấy:', querySnapshot.size);
+        
+        const courtsList = [];
+        
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          console.log('Sân:', doc.id, data.name || 'Không có tên');
+          courtsList.push({
+            id: doc.id,
+            ...data,
+            // Đảm bảo có các trường cần thiết
+            name: data.name || 'Chưa có tên',
+            address: data.address || 'Chưa có địa chỉ',
+            description: data.description || '',
+            sport: data.sport || 'football',
+            sportName: SPORT_NAMES[data.sport] || 'Khác',
+            price: data.price || 0,
+            openTime: data.openTime || '06:00',
+            closeTime: data.closeTime || '22:00',
+            facilities: Array.isArray(data.facilities) ? data.facilities : [],
+            isAvailable: data.status === 'active',
+            status: data.status || 'active',
+            image: data.image || 'https://images.unsplash.com/photo-1459865264687-595d652de67e?q=80&w=800&auto=format&fit=crop',
+            // Trường thống kê mặc định
+            totalBookings: data.totalBookings || 0,
+            totalRevenue: data.totalRevenue || 0,
+            rating: data.rating || 0
+          });
+        });
+        
+        console.log('Tổng số sân sau khi xử lý:', courtsList.length);
+        setCourts(courtsList);
+        
+        // Nếu không có sân nào, kiểm tra xem có sân nào trong database không
+        if (courtsList.length === 0) {
+          console.log('Không tìm thấy sân nào cho owner này, kiểm tra tất cả sân...');
+          
+          try {
+            const allCourtsSnapshot = await getDocs(collection(db, 'courts'));
+            console.log('Tổng số sân trong database:', allCourtsSnapshot.size);
+            
+            if (allCourtsSnapshot.size > 0) {
+              console.log('Danh sách tất cả sân trong database:');
+              allCourtsSnapshot.forEach(doc => {
+                const data = doc.data();
+                console.log(`- ${doc.id}: ${data.name} (ownerId: ${data.ownerId})`);
+              });
+            }
+          } catch (err) {
+            console.error('Lỗi khi kiểm tra tất cả sân:', err);
+          }
+        }
+      } catch (err) {
+        console.error('Lỗi khi lấy danh sách sân:', err);
+        console.error('Chi tiết lỗi:', err.code, err.message);
+        setError('Không thể tải danh sách sân. Vui lòng thử lại sau.');
+        
+        // Sử dụng dữ liệu mẫu nếu có lỗi
+        console.log('Sử dụng dữ liệu mẫu do lỗi');
+        setCourts(SAMPLE_COURTS);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchCourts();
+  }, [currentUser]);
   
   // Xử lý mở menu
   const handleMenuClick = (event, court) => {
@@ -161,10 +270,26 @@ const MyCourts = () => {
   };
   
   // Xử lý xóa sân
-  const handleDeleteCourt = () => {
-    // Trong trường hợp thực tế, bạn sẽ gọi API để xóa sân
-    setCourts(courts.filter(court => court.id !== selectedCourt.id));
-    handleCloseDeleteDialog();
+  const handleDeleteCourt = async () => {
+    if (!selectedCourt) return;
+    
+    try {
+      setActionLoading(true);
+      
+      // Xóa sân từ Firestore
+      await deleteDoc(doc(db, 'courts', selectedCourt.id));
+      
+      console.log('Đã xóa sân với ID:', selectedCourt.id);
+      
+      // Cập nhật state
+      setCourts(courts.filter(court => court.id !== selectedCourt.id));
+      handleCloseDeleteDialog();
+    } catch (err) {
+      console.error('Lỗi khi xóa sân:', err);
+      setError('Không thể xóa sân. Vui lòng thử lại sau.');
+    } finally {
+      setActionLoading(false);
+    }
   };
   
   // Xử lý chuyển đến trang chỉnh sửa
@@ -174,19 +299,43 @@ const MyCourts = () => {
   };
   
   // Xử lý thay đổi trạng thái sân
-  const handleToggleStatus = (courtId) => {
-    setCourts(courts.map(court => {
-      if (court.id === courtId) {
-        const newIsAvailable = !court.isAvailable;
-        return {
-          ...court,
-          isAvailable: newIsAvailable,
-          status: newIsAvailable ? 'active' : 'inactive'
-        };
-      }
-      return court;
-    }));
-    handleMenuClose();
+  const handleToggleStatus = async (courtId) => {
+    try {
+      setActionLoading(true);
+      
+      const courtToUpdate = courts.find(court => court.id === courtId);
+      if (!courtToUpdate) return;
+      
+      const newIsAvailable = !courtToUpdate.isAvailable;
+      const newStatus = newIsAvailable ? 'active' : 'inactive';
+      
+      // Cập nhật trong Firestore
+      const courtRef = doc(db, 'courts', courtId);
+      await updateDoc(courtRef, { 
+        status: newStatus,
+        updatedAt: new Date()
+      });
+      
+      console.log(`Đã cập nhật trạng thái sân ${courtId} thành ${newStatus}`);
+      
+      // Cập nhật state
+      setCourts(courts.map(court => {
+        if (court.id === courtId) {
+          return {
+            ...court,
+            isAvailable: newIsAvailable,
+            status: newStatus
+          };
+        }
+        return court;
+      }));
+    } catch (err) {
+      console.error('Lỗi khi cập nhật trạng thái sân:', err);
+      setError('Không thể cập nhật trạng thái sân. Vui lòng thử lại sau.');
+    } finally {
+      setActionLoading(false);
+      handleMenuClose();
+    }
   };
   
   // Lọc sân dựa trên tìm kiếm và bộ lọc
@@ -248,10 +397,10 @@ const MyCourts = () => {
     <Box sx={{ p: { xs: 2, md: 3 } }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
-          Quản lý sân thể thao
+          Sân của tôi
         </Typography>
-        <Button 
-          variant="contained" 
+        <Button
+          variant="contained"
           startIcon={<AddIcon />}
           onClick={() => navigate('/owner/courts/add')}
         >
@@ -259,13 +408,18 @@ const MyCourts = () => {
         </Button>
       </Box>
       
-      {/* Bộ lọc và tìm kiếm */}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+      
       <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
         <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} md={4}>
+          <Grid item xs={12} md={5}>
             <TextField
               fullWidth
-              placeholder="Tìm kiếm theo tên hoặc địa chỉ"
+              placeholder="Tìm kiếm theo tên hoặc địa chỉ..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               InputProps={{
@@ -282,11 +436,11 @@ const MyCourts = () => {
             <TextField
               select
               fullWidth
-              label="Loại sân"
+              label="Môn thể thao"
               value={filterSport}
               onChange={(e) => setFilterSport(e.target.value)}
             >
-              <MenuItem value="all">Tất cả loại sân</MenuItem>
+              <MenuItem value="all">Tất cả</MenuItem>
               <MenuItem value="football">Bóng đá</MenuItem>
               <MenuItem value="basketball">Bóng rổ</MenuItem>
               <MenuItem value="tennis">Tennis</MenuItem>
@@ -303,13 +457,14 @@ const MyCourts = () => {
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
             >
-              <MenuItem value="all">Tất cả trạng thái</MenuItem>
+              <MenuItem value="all">Tất cả</MenuItem>
               <MenuItem value="active">Đang hoạt động</MenuItem>
               <MenuItem value="inactive">Tạm ngưng</MenuItem>
+              <MenuItem value="maintenance">Bảo trì</MenuItem>
             </TextField>
           </Grid>
           
-          <Grid item xs={12} md={4}>
+          <Grid item xs={12} md={3}>
             <TextField
               select
               fullWidth
@@ -324,217 +479,188 @@ const MyCourts = () => {
                 ),
               }}
             >
-              <MenuItem value="name-asc">Tên A-Z</MenuItem>
-              <MenuItem value="name-desc">Tên Z-A</MenuItem>
-              <MenuItem value="price-asc">Giá tăng dần</MenuItem>
-              <MenuItem value="price-desc">Giá giảm dần</MenuItem>
-              <MenuItem value="rating-desc">Đánh giá cao nhất</MenuItem>
-              <MenuItem value="bookings-desc">Đặt sân nhiều nhất</MenuItem>
+              <MenuItem value="name-asc">Tên (A-Z)</MenuItem>
+              <MenuItem value="name-desc">Tên (Z-A)</MenuItem>
+              <MenuItem value="price-asc">Giá (Thấp-Cao)</MenuItem>
+              <MenuItem value="price-desc">Giá (Cao-Thấp)</MenuItem>
+              <MenuItem value="rating-desc">Đánh giá (Cao nhất)</MenuItem>
+              <MenuItem value="bookings-desc">Số lượt đặt (Cao nhất)</MenuItem>
             </TextField>
           </Grid>
         </Grid>
       </Paper>
       
-      {/* Hiển thị kết quả */}
-      <Box sx={{ mb: 2 }}>
-        <Typography variant="subtitle1">
-          {sortedCourts.length} Sân thể thao
-        </Typography>
-      </Box>
-      
-      <Grid container spacing={3}>
-        {sortedCourts.map((court) => (
-          <Grid item xs={12} md={6} lg={4} key={court.id}>
-            <Card sx={{ 
-              borderRadius: 2, 
-              height: '100%', 
-              display: 'flex', 
-              flexDirection: 'column',
-              boxShadow: 2
-            }}>
-              <Box sx={{ position: 'relative' }}>
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '300px' }}>
+          <CircularProgress />
+        </Box>
+      ) : filteredCourts.length === 0 ? (
+        <Box sx={{ textAlign: 'center', py: 5 }}>
+          <Typography variant="h6" color="text.secondary" gutterBottom>
+            {searchTerm || filterSport !== 'all' || filterStatus !== 'all' 
+              ? 'Không tìm thấy sân nào phù hợp với điều kiện tìm kiếm'
+              : 'Bạn chưa có sân nào. Hãy thêm sân mới!'}
+          </Typography>
+          {!(searchTerm || filterSport !== 'all' || filterStatus !== 'all') && (
+            <Button 
+              variant="contained" 
+              startIcon={<AddIcon />} 
+              onClick={() => navigate('/owner/courts/add')}
+              sx={{ mt: 2 }}
+            >
+              Thêm sân mới
+            </Button>
+          )}
+        </Box>
+      ) : (
+        <Grid container spacing={3}>
+          {filteredCourts.map((court) => (
+            <Grid item xs={12} md={6} lg={4} key={court.id}>
+              <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', borderRadius: 2, overflow: 'hidden' }}>
                 <CardMedia
                   component="img"
                   height="180"
-                  image={court.images[0]}
+                  image={court.image || court.images?.[0]}
                   alt={court.name}
                 />
-                <Box sx={{ 
-                  position: 'absolute', 
-                  top: 10, 
-                  right: 10,
-                  display: 'flex',
-                  gap: 1
-                }}>
-                  <Chip 
-                    label={court.sportName} 
-                    size="small" 
-                    color="primary" 
-                    icon={getSportIcon(court.sport)}
+                <CardContent sx={{ flexGrow: 1 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <Typography variant="h6" gutterBottom>
+                      {court.name}
+                    </Typography>
+                    <IconButton 
+                      size="small" 
+                      aria-label="options"
+                      onClick={(e) => handleMenuClick(e, court)}
+                      disabled={actionLoading}
+                    >
+                      <MoreVertIcon />
+                    </IconButton>
+                  </Box>
+                  
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    {getSportIcon(court.sport)}
+                    <Typography variant="body2" sx={{ ml: 1 }}>
+                      {court.sportName}
+                    </Typography>
+                  </Box>
+                  
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <LocationOnIcon fontSize="small" color="action" />
+                    <Typography variant="body2" sx={{ ml: 1 }} noWrap>
+                      {court.address}
+                    </Typography>
+                  </Box>
+                  
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <AccessTimeIcon fontSize="small" color="action" />
+                    <Typography variant="body2" sx={{ ml: 1 }}>
+                      {court.openTime} - {court.closeTime}
+                    </Typography>
+                  </Box>
+                  
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <LocalAtmIcon fontSize="small" color="action" />
+                    <Typography variant="body2" sx={{ ml: 1 }}>
+                      {formatCurrency(court.price)}/giờ
+                    </Typography>
+                  </Box>
+                  
+                  <Box sx={{ mt: 1, display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                    {court.facilities.slice(0, 3).map((facility, index) => (
+                      <Chip key={index} label={facility} size="small" sx={{ mb: 0.5 }} />
+                    ))}
+                    {court.facilities.length > 3 && (
+                      <Chip 
+                        label={`+${court.facilities.length - 3}`} 
+                        size="small" 
+                        variant="outlined" 
+                      />
+                    )}
+                  </Box>
+                </CardContent>
+                
+                <Divider />
+                
+                <CardActions sx={{ justifyContent: 'space-between', p: 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    {court.isAvailable ? (
+                      <Chip 
+                        icon={<CheckCircleIcon />} 
+                        label="Đang hoạt động" 
+                        color="success" 
+                        size="small" 
+                      />
+                    ) : (
+                      <Chip 
+                        icon={<ErrorIcon />} 
+                        label={court.status === 'maintenance' ? 'Đang bảo trì' : 'Tạm ngưng'} 
+                        color="error" 
+                        size="small" 
+                      />
+                    )}
+                  </Box>
+                  
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={court.isAvailable}
+                        onChange={() => handleToggleStatus(court.id)}
+                        disabled={actionLoading}
+                      />
+                    }
+                    label=""
                   />
-                  <Chip 
-                    label={court.isAvailable ? 'Đang hoạt động' : 'Tạm ngưng'} 
-                    size="small" 
-                    color={court.isAvailable ? 'success' : 'error'} 
-                    icon={court.isAvailable ? <CheckCircleIcon /> : <ErrorIcon />}
-                  />
-                </Box>
-              </Box>
-              
-              <CardContent sx={{ flexGrow: 1 }}>
-                <Typography variant="h6" gutterBottom>
-                  {court.name}
-                </Typography>
-                
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                  <LocationOnIcon fontSize="small" sx={{ color: 'text.secondary', mr: 1 }} />
-                  <Typography variant="body2" color="text.secondary">
-                    {court.address}
-                  </Typography>
-                </Box>
-                
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                  <LocalAtmIcon fontSize="small" sx={{ color: 'text.secondary', mr: 1 }} />
-                  <Typography variant="body2">
-                    {formatCurrency(court.price)}/giờ
-                  </Typography>
-                </Box>
-                
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <AccessTimeIcon fontSize="small" sx={{ color: 'text.secondary', mr: 1 }} />
-                  <Typography variant="body2">
-                    {court.openTime} - {court.closeTime}
-                  </Typography>
-                </Box>
-                
-                <Divider sx={{ my: 1 }} />
-                
-                <Grid container spacing={1}>
-                  <Grid item xs={6}>
-                    <Typography variant="body2" color="text.secondary">
-                      Đặt sân:
-                    </Typography>
-                    <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
-                      {court.totalBookings} lần
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={6}>
-                    <Typography variant="body2" color="text.secondary">
-                      Doanh thu:
-                    </Typography>
-                    <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
-                      {formatCurrency(court.totalRevenue)}
-                    </Typography>
-                  </Grid>
-                </Grid>
-              </CardContent>
-              
-              <CardActions sx={{ justifyContent: 'space-between', px: 2, pb: 2 }}>
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={court.isAvailable}
-                      onChange={() => handleToggleStatus(court.id)}
-                      color="success"
-                    />
-                  }
-                  label={court.isAvailable ? "Hoạt động" : "Tạm ngưng"}
-                />
-                
-                <div>
-                  <Button 
-                    variant="outlined" 
-                    startIcon={<EditIcon />}
-                    size="small"
-                    onClick={() => navigate(`/owner/courts/edit/${court.id}`)}
-                    sx={{ mr: 1 }}
-                  >
-                    Sửa
-                  </Button>
-                  <IconButton 
-                    aria-label="more options" 
-                    onClick={(e) => handleMenuClick(e, court)}
-                    size="small"
-                  >
-                    <MoreVertIcon />
-                  </IconButton>
-                </div>
-              </CardActions>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
+                </CardActions>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+      )}
       
-      {/* Menu tùy chọn */}
+      {/* Menu for court actions */}
       <Menu
         anchorEl={anchorEl}
         open={Boolean(anchorEl)}
         onClose={handleMenuClose}
       >
-        <MenuItem onClick={handleEditCourt}>
+        <MenuItem onClick={handleEditCourt} disabled={actionLoading}>
           <EditIcon fontSize="small" sx={{ mr: 1 }} />
-          Chỉnh sửa sân
+          Chỉnh sửa
         </MenuItem>
-        <MenuItem 
-          onClick={() => handleToggleStatus(selectedCourt?.id)}
-          sx={{ color: selectedCourt?.isAvailable ? 'error.main' : 'success.main' }}
-        >
-          {selectedCourt?.isAvailable ? (
-            <>
-              <ErrorIcon fontSize="small" sx={{ mr: 1 }} />
-              Tạm ngưng hoạt động
-            </>
-          ) : (
-            <>
-              <CheckCircleIcon fontSize="small" sx={{ mr: 1 }} />
-              Kích hoạt sân
-            </>
-          )}
-        </MenuItem>
-        <Divider />
-        <MenuItem onClick={handleOpenDeleteDialog} sx={{ color: 'error.main' }}>
+        <MenuItem onClick={handleOpenDeleteDialog} disabled={actionLoading}>
           <DeleteIcon fontSize="small" sx={{ mr: 1 }} />
-          Xóa sân
+          Xóa
         </MenuItem>
       </Menu>
       
-      {/* Dialog xác nhận xóa */}
+      {/* Confirmation dialog for deleting court */}
       <Dialog
         open={deleteDialogOpen}
         onClose={handleCloseDeleteDialog}
       >
-        <DialogTitle>Xác nhận xóa sân</DialogTitle>
+        <DialogTitle>
+          Xác nhận xóa sân
+        </DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Bạn có chắc chắn muốn xóa sân "{selectedCourt?.name}"? Hành động này không thể hoàn tác và sẽ xóa tất cả dữ liệu liên quan đến sân này.
+            Bạn có chắc chắn muốn xóa sân "{selectedCourt?.name}" không? Hành động này không thể hoàn tác.
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseDeleteDialog}>Hủy</Button>
-          <Button onClick={handleDeleteCourt} color="error" variant="contained">
-            Xóa
+          <Button onClick={handleCloseDeleteDialog} disabled={actionLoading}>
+            Hủy
+          </Button>
+          <Button 
+            onClick={handleDeleteCourt} 
+            color="error" 
+            startIcon={actionLoading ? <CircularProgress size={20} /> : null}
+            disabled={actionLoading}
+          >
+            {actionLoading ? 'Đang xóa...' : 'Xóa'}
           </Button>
         </DialogActions>
       </Dialog>
-      
-      {/* Hiển thị khi không có sân nào */}
-      {sortedCourts.length === 0 && (
-        <Paper sx={{ p: 4, borderRadius: 2, textAlign: 'center' }}>
-          <Typography variant="h6" gutterBottom>
-            Không tìm thấy sân thể thao
-          </Typography>
-          <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-            Không có sân thể thao nào phù hợp với tiêu chí tìm kiếm hoặc bạn chưa thêm sân nào.
-          </Typography>
-          <Button 
-            variant="contained" 
-            startIcon={<AddIcon />}
-            onClick={() => navigate('/owner/courts/add')}
-          >
-            Thêm sân mới
-          </Button>
-        </Paper>
-      )}
     </Box>
   );
 };

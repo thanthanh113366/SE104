@@ -1,4 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { collection, getDocs, doc, getDoc, updateDoc, deleteDoc, query, where, orderBy, limit } from 'firebase/firestore';
+import { db } from '../../firebase';
+import { useAuth } from '../../contexts/AuthContext';
 import { 
   Box, 
   Typography, 
@@ -29,7 +32,8 @@ import {
   Stack,
   Divider,
   Tabs,
-  Tab
+  Tab,
+  CircularProgress
 } from '@mui/material';
 
 // Icons
@@ -139,7 +143,9 @@ const SAMPLE_COURTS = [
 ];
 
 const ManageCourts = () => {
-  const [courts, setCourts] = useState(SAMPLE_COURTS);
+  const [courts, setCourts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(5);
   const [searchTerm, setSearchTerm] = useState('');
@@ -151,6 +157,82 @@ const ManageCourts = () => {
   const [blockDialogOpen, setBlockDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [tabValue, setTabValue] = useState(0);
+  const { currentUser } = useAuth();
+  
+  // Map thể loại sân
+  const SPORT_NAMES = {
+    'football': 'Bóng đá',
+    'basketball': 'Bóng rổ',
+    'tennis': 'Tennis',
+    'badminton': 'Cầu lông',
+    'volleyball': 'Bóng chuyền'
+  };
+  
+  // Lấy dữ liệu sân từ Firestore
+  useEffect(() => {
+    const fetchCourts = async () => {
+      try {
+        setLoading(true);
+        setError('');
+        
+        console.log('Đang lấy danh sách tất cả sân cho admin...');
+        
+        const courtsRef = collection(db, 'courts');
+        console.log('Đã tạo reference đến collection courts');
+        
+        // Lấy tất cả sân không phân biệt owner
+        const querySnapshot = await getDocs(courtsRef);
+        console.log('Số lượng sân tìm thấy:', querySnapshot.size);
+        
+        const courtsList = [];
+        
+        querySnapshot.forEach(async (doc) => {
+          const data = doc.data();
+          console.log('Sân:', doc.id, data.name || 'Không có tên');
+          
+          // Xử lý dữ liệu bổ sung (lấy thông tin owner nếu cần)
+          let ownerName = 'Không rõ';
+          
+          // Thêm vào danh sách
+          courtsList.push({
+            id: doc.id,
+            ...data,
+            // Đảm bảo các trường cần thiết
+            name: data.name || 'Chưa có tên',
+            address: data.address || 'Chưa có địa chỉ',
+            ownerId: data.ownerId || 'unknown',
+            ownerName: ownerName,
+            sport: data.sport || 'unknown',
+            sportName: SPORT_NAMES[data.sport] || 'Không xác định',
+            price: data.price || 0,
+            openTime: data.openTime || '06:00',
+            closeTime: data.closeTime || '22:00',
+            status: data.status || 'active',
+            totalBookings: data.totalBookings || 0,
+            totalRevenue: data.totalRevenue || 0,
+            rating: data.rating || 0,
+            createdAt: data.createdAt ? new Date(data.createdAt.toDate()).toLocaleDateString('vi-VN') : 'Không rõ'
+          });
+        });
+        
+        console.log('Danh sách sân đã xử lý:', courtsList.length);
+        setCourts(courtsList);
+        
+      } catch (err) {
+        console.error('Lỗi khi lấy danh sách sân:', err);
+        console.error('Chi tiết lỗi:', err.code, err.message);
+        setError('Không thể tải danh sách sân. Vui lòng thử lại sau.');
+        
+        // Nếu có lỗi, sử dụng dữ liệu mẫu
+        console.log('Sử dụng dữ liệu mẫu do lỗi');
+        setCourts(SAMPLE_COURTS);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchCourts();
+  }, []);
   
   // Xử lý thay đổi tab
   const handleTabChange = (event, newValue) => {
@@ -212,60 +294,95 @@ const ManageCourts = () => {
     setDeleteDialogOpen(false);
   };
   
-  // Xử lý khóa/mở khóa sân
-  const handleToggleCourtStatus = () => {
+  // Xử lý thay đổi trạng thái sân
+  const handleToggleCourtStatus = async () => {
     if (!selectedCourt) return;
     
-    setCourts(courts.map(court => {
-      if (court.id === selectedCourt.id) {
-        const newStatus = court.status === 'active' ? 'inactive' : 'active';
-        return { ...court, status: newStatus };
-      }
-      return court;
-    }));
-    
-    setBlockDialogOpen(false);
+    try {
+      setLoading(true);
+      
+      const newStatus = selectedCourt.status === 'active' ? 'inactive' : 'active';
+      
+      // Cập nhật trong Firestore
+      const courtRef = doc(db, 'courts', selectedCourt.id);
+      await updateDoc(courtRef, { 
+        status: newStatus,
+        updatedAt: new Date()
+      });
+      
+      console.log(`Đã cập nhật trạng thái sân ${selectedCourt.id} thành ${newStatus}`);
+      
+      // Cập nhật state
+      setCourts(courts.map(court => {
+        if (court.id === selectedCourt.id) {
+          return {
+            ...court,
+            status: newStatus
+          };
+        }
+        return court;
+      }));
+      
+      setBlockDialogOpen(false);
+    } catch (err) {
+      console.error('Lỗi khi thay đổi trạng thái sân:', err);
+      setError('Không thể cập nhật trạng thái sân. Vui lòng thử lại sau.');
+    } finally {
+      setLoading(false);
+    }
   };
   
   // Xử lý xóa sân
-  const handleDeleteCourt = () => {
+  const handleDeleteCourt = async () => {
     if (!selectedCourt) return;
     
-    setCourts(courts.filter(court => court.id !== selectedCourt.id));
-    setDeleteDialogOpen(false);
+    try {
+      setLoading(true);
+      
+      // Xóa sân từ Firestore
+      const courtRef = doc(db, 'courts', selectedCourt.id);
+      await deleteDoc(courtRef);
+      
+      console.log(`Đã xóa sân ${selectedCourt.id} khỏi Firestore`);
+      
+      // Cập nhật state
+      setCourts(courts.filter(court => court.id !== selectedCourt.id));
+      
+      setDeleteDialogOpen(false);
+    } catch (err) {
+      console.error('Lỗi khi xóa sân:', err);
+      setError('Không thể xóa sân. Vui lòng thử lại sau.');
+    } finally {
+      setLoading(false);
+    }
   };
   
-  // Lọc sân theo tìm kiếm và bộ lọc
+  // Áp dụng bộ lọc
   const filteredCourts = courts.filter(court => {
-    // Lọc theo tab (loại sân)
-    if (tabValue === 1 && court.sport !== 'football') return false;
-    if (tabValue === 2 && court.sport !== 'badminton') return false;
-    if (tabValue === 3 && court.sport !== 'basketball') return false;
-    if (tabValue === 4 && court.sport !== 'tennis') return false;
+    // Lọc theo tab (trạng thái hoạt động)
+    if (tabValue === 1 && court.status !== 'active') return false;
+    if (tabValue === 2 && court.status !== 'inactive') return false;
     
-    // Lọc theo từ khóa tìm kiếm
-    const searchLower = searchTerm.toLowerCase();
-    if (
-      searchTerm &&
-      !court.name.toLowerCase().includes(searchLower) &&
-      !court.address.toLowerCase().includes(searchLower) &&
-      !court.ownerName.toLowerCase().includes(searchLower)
-    ) {
-      return false;
-    }
+    // Lọc theo tên hoặc địa chỉ
+    const matchesSearch = 
+      court.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      court.address.toLowerCase().includes(searchTerm.toLowerCase());
     
     // Lọc theo loại sân
-    if (sportFilter !== 'all' && court.sport !== sportFilter) {
-      return false;
-    }
+    const matchesSport = sportFilter === 'all' || court.sport === sportFilter;
     
-    // Lọc theo trạng thái
-    if (statusFilter !== 'all' && court.status !== statusFilter) {
-      return false;
-    }
+    // Lọc theo trạng thái (nếu đang ở tab tất cả)
+    const matchesStatus = 
+      tabValue !== 0 ? true : (statusFilter === 'all' || court.status === statusFilter);
     
-    return true;
+    return matchesSearch && matchesSport && matchesStatus;
   });
+  
+  // Phân trang
+  const paginatedCourts = filteredCourts.slice(
+    page * rowsPerPage,
+    page * rowsPerPage + rowsPerPage
+  );
   
   // Format tiền VND
   const formatCurrency = (amount) => {
@@ -303,13 +420,18 @@ const ManageCourts = () => {
   };
   
   return (
-    <Box sx={{ p: { xs: 2, md: 3 } }}>
+    <Box sx={{ p: 3 }}>
       <Typography variant="h4" sx={{ mb: 3, fontWeight: 'bold' }}>
-        Quản lý sân thể thao
+        Quản lý sân
       </Typography>
       
-      {/* Thanh công cụ tìm kiếm và lọc */}
-      <Paper sx={{ p: 2, mb: 3, borderRadius: 2 }}>
+      {error && (
+        <Paper sx={{ p: 2, mb: 2, bgcolor: '#ffebee' }}>
+          <Typography color="error">{error}</Typography>
+        </Paper>
+      )}
+      
+      <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
         <Grid container spacing={2} alignItems="center">
           <Grid item xs={12} md={6}>
             <TextField
@@ -374,43 +496,54 @@ const ManageCourts = () => {
         </Grid>
       </Paper>
       
-      {/* Tab và bảng hiển thị */}
-      <Paper sx={{ borderRadius: 2 }}>
+      <Paper sx={{ width: '100%', borderRadius: 2 }}>
         <Tabs 
           value={tabValue} 
           onChange={handleTabChange}
-          variant="scrollable"
-          scrollButtons="auto"
           sx={{ borderBottom: 1, borderColor: 'divider' }}
         >
           <Tab label="Tất cả sân" />
-          <Tab label="Bóng đá" />
-          <Tab label="Cầu lông" />
-          <Tab label="Bóng rổ" />
-          <Tab label="Tennis" />
+          <Tab label="Sân đang hoạt động" />
+          <Tab label="Sân đã khóa" />
         </Tabs>
         
         <TableContainer>
           <Table>
             <TableHead>
               <TableRow>
-                <TableCell>ID</TableCell>
                 <TableCell>Tên sân</TableCell>
-                <TableCell>Loại sân</TableCell>
+                <TableCell>Loại</TableCell>
+                <TableCell>Địa chỉ</TableCell>
                 <TableCell>Chủ sân</TableCell>
-                <TableCell>Giá (VNĐ/giờ)</TableCell>
-                <TableCell>Đặt sân</TableCell>
-                <TableCell>Doanh thu</TableCell>
+                <TableCell>Giá</TableCell>
+                <TableCell>Đánh giá</TableCell>
                 <TableCell>Trạng thái</TableCell>
-                <TableCell align="right">Thao tác</TableCell>
+                <TableCell align="right">Hành động</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {filteredCourts
-                .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-                .map((court) => (
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={8} align="center" sx={{ py: 3 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column' }}>
+                      <CircularProgress size={40} sx={{ mb: 2 }} />
+                      <Typography variant="body2" color="text.secondary">
+                        Đang tải dữ liệu sân...
+                      </Typography>
+                    </Box>
+                  </TableCell>
+                </TableRow>
+              ) : paginatedCourts.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} align="center" sx={{ py: 3 }}>
+                    <Typography variant="body1">
+                      Không tìm thấy sân nào{searchTerm ? ` phù hợp với "${searchTerm}"` : ''}
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                paginatedCourts.map((court) => (
                   <TableRow key={court.id} hover>
-                    <TableCell>{court.id}</TableCell>
                     <TableCell>{court.name}</TableCell>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center' }}>
@@ -420,10 +553,10 @@ const ManageCourts = () => {
                         </Typography>
                       </Box>
                     </TableCell>
+                    <TableCell>{court.address}</TableCell>
                     <TableCell>{court.ownerName}</TableCell>
                     <TableCell>{formatCurrency(court.price)}</TableCell>
-                    <TableCell>{court.totalBookings} lần</TableCell>
-                    <TableCell>{formatCurrency(court.totalRevenue)}</TableCell>
+                    <TableCell>{court.rating}/5</TableCell>
                     <TableCell>{getStatusChip(court.status)}</TableCell>
                     <TableCell align="right">
                       <IconButton
@@ -434,30 +567,21 @@ const ManageCourts = () => {
                       </IconButton>
                     </TableCell>
                   </TableRow>
-                ))}
-              {filteredCourts.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={9} align="center" sx={{ py: 3 }}>
-                    <Typography variant="subtitle1">
-                      Không tìm thấy sân thể thao nào phù hợp
-                    </Typography>
-                  </TableCell>
-                </TableRow>
+                ))
               )}
             </TableBody>
           </Table>
         </TableContainer>
         
         <TablePagination
-          rowsPerPageOptions={[5, 10, 25]}
           component="div"
           count={filteredCourts.length}
-          rowsPerPage={rowsPerPage}
           page={page}
           onPageChange={handleChangePage}
+          rowsPerPage={rowsPerPage}
           onRowsPerPageChange={handleChangeRowsPerPage}
           labelRowsPerPage="Số hàng mỗi trang:"
-          labelDisplayedRows={({ from, to, count }) => `${from}-${to} trong ${count}`}
+          labelDisplayedRows={({ from, to, count }) => `${from}-${to} của ${count}`}
         />
       </Paper>
       
@@ -492,210 +616,142 @@ const ManageCourts = () => {
         </MenuItem>
       </Menu>
       
-      {/* Dialog chi tiết sân */}
-      <Dialog
-        open={detailDialogOpen}
-        onClose={handleCloseDetailDialog}
-        maxWidth="md"
-        fullWidth
-      >
+      {/* Detail Dialog */}
+      <Dialog open={detailDialogOpen} onClose={handleCloseDetailDialog} maxWidth="md">
         {selectedCourt && (
           <>
             <DialogTitle>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                {getSportIcon(selectedCourt.sport)}
-                <Typography variant="h6">Chi tiết sân thể thao</Typography>
-              </Box>
+              Chi tiết sân: {selectedCourt.name}
             </DialogTitle>
-            <DialogContent>
-              <Grid container spacing={3}>
+            <DialogContent dividers>
+              <Grid container spacing={2}>
                 <Grid item xs={12} md={6}>
-                  <Box sx={{ mb: 3 }}>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mb: 2 }}>
-                      Thông tin cơ bản
-                    </Typography>
-                    
-                    <Stack spacing={2}>
-                      <Box>
-                        <Typography variant="body2" color="text.secondary">Tên sân</Typography>
-                        <Typography variant="body1">{selectedCourt.name}</Typography>
-                      </Box>
-                      
-                      <Box>
-                        <Typography variant="body2" color="text.secondary">Loại sân</Typography>
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                          {getSportIcon(selectedCourt.sport)}
-                          <Typography variant="body1" sx={{ ml: 1 }}>
-                            {selectedCourt.sportName}
-                          </Typography>
-                        </Box>
-                      </Box>
-                      
-                      <Box sx={{ display: 'flex', alignItems: 'flex-start' }}>
-                        <LocationOnIcon sx={{ mr: 1, color: 'text.secondary', mt: 0.5 }} />
-                        <Box>
-                          <Typography variant="body2" color="text.secondary">Địa chỉ</Typography>
-                          <Typography variant="body1">{selectedCourt.address}</Typography>
-                        </Box>
-                      </Box>
-                    </Stack>
+                  <Typography variant="h6" gutterBottom>Thông tin cơ bản</Typography>
+                  <Typography><strong>ID:</strong> {selectedCourt.id}</Typography>
+                  <Typography><strong>Tên sân:</strong> {selectedCourt.name}</Typography>
+                  <Typography><strong>Loại sân:</strong> {selectedCourt.sportName}</Typography>
+                  <Typography><strong>Địa chỉ:</strong> {selectedCourt.address}</Typography>
+                  <Typography><strong>Giá thuê:</strong> {formatCurrency(selectedCourt.price)}/giờ</Typography>
+                  <Typography><strong>Mô tả:</strong> {selectedCourt.description || 'Không có mô tả'}</Typography>
+                  <Typography><strong>Đánh giá:</strong> {selectedCourt.rating}/5</Typography>
+                  <Typography><strong>Trạng thái:</strong> {selectedCourt.status === 'active' ? 'Đang hoạt động' : 'Tạm khóa'}</Typography>
+                  <Typography><strong>Ngày tạo:</strong> {selectedCourt.createdAt}</Typography>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Typography variant="h6" gutterBottom>Thông tin chủ sân</Typography>
+                  <Typography><strong>ID chủ sân:</strong> {selectedCourt.ownerId}</Typography>
+                  <Typography><strong>Tên chủ sân:</strong> {selectedCourt.ownerName}</Typography>
+                  
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="h6" gutterBottom>Tiện ích</Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      {selectedCourt.facilities && selectedCourt.facilities.length > 0 ? 
+                        selectedCourt.facilities.map((facility, idx) => (
+                          <Chip key={idx} label={facility} size="small" />
+                        )) : 
+                        <Typography variant="body2">Không có thông tin</Typography>
+                      }
+                    </Box>
                   </Box>
                   
-                  <Divider sx={{ my: 2 }} />
-                  
-                  <Box>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mb: 2 }}>
-                      Thông tin hoạt động
-                    </Typography>
-                    
-                    <Stack spacing={2}>
-                      <Box>
-                        <Typography variant="body2" color="text.secondary">Giá thuê</Typography>
-                        <Typography variant="body1">{formatCurrency(selectedCourt.price)}/giờ</Typography>
-                      </Box>
-                      
-                      <Box>
-                        <Typography variant="body2" color="text.secondary">Giờ hoạt động</Typography>
-                        <Typography variant="body1">{selectedCourt.openTime} - {selectedCourt.closeTime}</Typography>
-                      </Box>
-                      
-                      <Box>
-                        <Typography variant="body2" color="text.secondary">Trạng thái</Typography>
-                        {getStatusChip(selectedCourt.status)}
-                      </Box>
-                      
-                      <Box>
-                        <Typography variant="body2" color="text.secondary">Ngày tạo</Typography>
-                        <Typography variant="body1">{selectedCourt.createdAt}</Typography>
-                      </Box>
-                    </Stack>
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="h6" gutterBottom>Thời gian hoạt động</Typography>
+                    <Typography><strong>Mở cửa:</strong> {selectedCourt.openTime} - {selectedCourt.closeTime}</Typography>
                   </Box>
                 </Grid>
                 
-                <Grid item xs={12} md={6}>
-                  <Box sx={{ mb: 3 }}>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mb: 2 }}>
-                      Thông tin chủ sân
-                    </Typography>
-                    
-                    <Stack spacing={2}>
-                      <Box sx={{ display: 'flex', alignItems: 'flex-start' }}>
-                        <PersonIcon sx={{ mr: 1, color: 'text.secondary', mt: 0.5 }} />
-                        <Box>
-                          <Typography variant="body2" color="text.secondary">Chủ sân</Typography>
-                          <Typography variant="body1">{selectedCourt.ownerName}</Typography>
-                          <Typography variant="body2" color="text.secondary">ID: {selectedCourt.ownerId}</Typography>
-                        </Box>
-                      </Box>
-                    </Stack>
-                  </Box>
-                  
+                <Grid item xs={12}>
                   <Divider sx={{ my: 2 }} />
+                  <Typography variant="h6" gutterBottom>Thống kê</Typography>
                   
-                  <Box>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 'bold', mb: 2 }}>
-                      Thống kê
-                    </Typography>
-                    
-                    <Stack spacing={2}>
-                      <Box>
-                        <Typography variant="body2" color="text.secondary">Tổng số lần đặt sân</Typography>
-                        <Typography variant="body1">{selectedCourt.totalBookings} lần</Typography>
-                      </Box>
-                      
-                      <Box>
-                        <Typography variant="body2" color="text.secondary">Tổng doanh thu</Typography>
-                        <Typography variant="body1">{formatCurrency(selectedCourt.totalRevenue)}</Typography>
-                      </Box>
-                      
-                      <Box>
-                        <Typography variant="body2" color="text.secondary">Đánh giá trung bình</Typography>
-                        <Typography variant="body1">{selectedCourt.rating}/5</Typography>
-                      </Box>
-                    </Stack>
-                  </Box>
+                  <Grid container spacing={2}>
+                    <Grid item xs={6} md={3}>
+                      <Paper sx={{ p: 2, textAlign: 'center' }}>
+                        <Typography variant="h4">{selectedCourt.totalBookings || 0}</Typography>
+                        <Typography variant="body2">Lượt đặt sân</Typography>
+                      </Paper>
+                    </Grid>
+                    <Grid item xs={6} md={3}>
+                      <Paper sx={{ p: 2, textAlign: 'center' }}>
+                        <Typography variant="h4">{formatCurrency(selectedCourt.totalRevenue || 0)}</Typography>
+                        <Typography variant="body2">Doanh thu</Typography>
+                      </Paper>
+                    </Grid>
+                  </Grid>
                 </Grid>
               </Grid>
             </DialogContent>
             <DialogActions>
-              <Button onClick={handleCloseDetailDialog}>Đóng</Button>
-              
-              <Button 
-                variant="outlined" 
-                color={selectedCourt.status === 'active' ? 'error' : 'success'}
-                onClick={() => {
-                  handleCloseDetailDialog();
-                  handleOpenBlockDialog();
-                }}
-              >
-                {selectedCourt.status === 'active' ? 'Tạm ngưng sân' : 'Kích hoạt sân'}
-              </Button>
-              
-              <Button 
-                variant="outlined" 
-                color="error"
-                onClick={() => {
-                  handleCloseDetailDialog();
-                  handleOpenDeleteDialog();
-                }}
-              >
-                Xóa sân
+              <Button onClick={handleCloseDetailDialog}>
+                Đóng
               </Button>
             </DialogActions>
           </>
         )}
       </Dialog>
       
-      {/* Dialog xác nhận khóa/mở khóa sân */}
-      <Dialog
-        open={blockDialogOpen}
-        onClose={handleCloseBlockDialog}
-      >
-        <DialogTitle>
-          {selectedCourt?.status === 'active' 
-            ? 'Xác nhận tạm ngưng sân' 
-            : 'Xác nhận kích hoạt sân'}
-        </DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            {selectedCourt?.status === 'active' 
-              ? `Bạn có chắc chắn muốn tạm ngưng hoạt động của sân "${selectedCourt?.name}" không? Sân sẽ không thể được đặt cho đến khi được kích hoạt lại.`
-              : `Bạn có chắc chắn muốn kích hoạt sân "${selectedCourt?.name}" không? Sân sẽ được hiển thị trong danh sách đặt sân.`}
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseBlockDialog}>Hủy</Button>
-          <Button 
-            onClick={handleToggleCourtStatus} 
-            color={selectedCourt?.status === 'active' ? 'error' : 'success'}
-            variant="contained"
-          >
-            {selectedCourt?.status === 'active' ? 'Tạm ngưng sân' : 'Kích hoạt sân'}
-          </Button>
-        </DialogActions>
+      {/* Block Dialog */}
+      <Dialog open={blockDialogOpen} onClose={handleCloseBlockDialog}>
+        {selectedCourt && (
+          <>
+            <DialogTitle>
+              {selectedCourt.status === 'active' ? 'Khóa sân' : 'Mở khóa sân'}
+            </DialogTitle>
+            <DialogContent>
+              <DialogContentText>
+                {selectedCourt.status === 'active'
+                  ? `Bạn có chắc chắn muốn khóa sân "${selectedCourt.name}"? Khi bị khóa, sân sẽ không hiển thị cho người thuê và không thể đặt sân.`
+                  : `Bạn có chắc chắn muốn mở khóa sân "${selectedCourt.name}"? Khi được mở khóa, sân sẽ hiển thị cho người thuê và có thể đặt sân.`
+                }
+              </DialogContentText>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={handleCloseBlockDialog}>
+                Hủy
+              </Button>
+              <Button 
+                onClick={handleToggleCourtStatus} 
+                color={selectedCourt.status === 'active' ? 'error' : 'success'}
+                variant="contained"
+                disabled={loading}
+              >
+                {loading ? <CircularProgress size={24} sx={{ mx: 1 }} /> : null}
+                {selectedCourt.status === 'active' ? 'Khóa sân' : 'Mở khóa sân'}
+              </Button>
+            </DialogActions>
+          </>
+        )}
       </Dialog>
       
-      {/* Dialog xác nhận xóa sân */}
-      <Dialog
-        open={deleteDialogOpen}
-        onClose={handleCloseDeleteDialog}
-      >
-        <DialogTitle>Xác nhận xóa sân</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            Bạn có chắc chắn muốn xóa sân "{selectedCourt?.name}" không? Hành động này không thể hoàn tác và tất cả dữ liệu liên quan đến sân này sẽ bị xóa.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseDeleteDialog}>Hủy</Button>
-          <Button 
-            onClick={handleDeleteCourt} 
-            color="error"
-            variant="contained"
-          >
-            Xóa sân
-          </Button>
-        </DialogActions>
+      {/* Delete Dialog */}
+      <Dialog open={deleteDialogOpen} onClose={handleCloseDeleteDialog}>
+        {selectedCourt && (
+          <>
+            <DialogTitle>
+              Xác nhận xóa sân
+            </DialogTitle>
+            <DialogContent>
+              <DialogContentText>
+                Bạn có chắc chắn muốn xóa sân "{selectedCourt.name}"? 
+                Hành động này không thể hoàn tác và sẽ xóa tất cả dữ liệu liên quan đến sân này.
+              </DialogContentText>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={handleCloseDeleteDialog}>
+                Hủy
+              </Button>
+              <Button 
+                onClick={handleDeleteCourt} 
+                color="error"
+                variant="contained"
+                disabled={loading}
+              >
+                {loading ? <CircularProgress size={24} sx={{ mx: 1 }} /> : null}
+                Xóa sân
+              </Button>
+            </DialogActions>
+          </>
+        )}
       </Dialog>
     </Box>
   );
