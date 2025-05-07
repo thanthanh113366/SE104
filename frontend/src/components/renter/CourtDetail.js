@@ -35,7 +35,7 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import PaidIcon from '@mui/icons-material/Paid';
 import StarIcon from '@mui/icons-material/Star';
 import BookOnlineIcon from '@mui/icons-material/BookOnline';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, addDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -108,7 +108,7 @@ const DEMO_COURTS = [
 
 const CourtDetail = () => {
   const { courtId } = useParams();
-  const { userDetails } = useAuth();
+  const { userDetails, currentUser } = useAuth();
   const navigate = useNavigate();
   
   const [court, setCourt] = useState(null);
@@ -117,6 +117,9 @@ const CourtDetail = () => {
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [bookingOpen, setBookingOpen] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState(null);
+  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [note, setNote] = useState('');
+  const [bookingLoading, setBookingLoading] = useState(false);
   
   // Fetch court data
   useEffect(() => {
@@ -133,11 +136,13 @@ const CourtDetail = () => {
           console.log('Đã tìm thấy thông tin sân từ Firestore:', courtDoc.id);
           const data = courtDoc.data();
           console.log('Dữ liệu sân:', data);
+          console.log('ownerId từ Firestore:', data.ownerId);
           
           // Hoàn thiện dữ liệu
           const courtData = {
             id: courtDoc.id,
             ...data,
+            ownerId: data.ownerId || '',
             name: data.name || 'Chưa có tên',
             address: data.address || 'Chưa có địa chỉ',
             description: data.description || 'Chưa có mô tả',
@@ -197,19 +202,97 @@ const CourtDetail = () => {
   }, [courtId]);
   
   const handleBookingOpen = (slot) => {
-    setSelectedSlot(slot);
+    setSelectedSlot(slot.time);
     setBookingOpen(true);
   };
   
   const handleBookingClose = () => {
     setBookingOpen(false);
     setSelectedSlot(null);
+    setNote('');
+    setPaymentMethod('cash');
   };
   
-  const handleBooking = () => {
-    // Thực hiện đặt sân - sẽ triển khai sau khi có API
-    alert(`Đặt sân thành công! Slot: ${selectedSlot.time}`);
-    handleBookingClose();
+  const handleBooking = async () => {
+    if (!currentUser) {
+      alert('Vui lòng đăng nhập để đặt sân!');
+      return;
+    }
+    
+    try {
+      setBookingLoading(true);
+      
+      console.log('Thông tin sân khi đặt:', court);
+      
+      // Tách thời gian bắt đầu và kết thúc từ chuỗi thời gian (VD: "08:00-09:30")
+      const [startTime, endTime] = selectedSlot.split('-');
+      
+      // Lấy thông tin user từ Firestore
+      const userRef = doc(db, 'users', currentUser.uid);
+      const userSnap = await getDoc(userRef);
+      const userDetails = userSnap.exists() ? userSnap.data() : null;
+      
+      // Tính tổng tiền
+      const price = court.price || 0;
+      // Chuyển startTime và endTime thành phút
+      const [startHour, startMinute] = startTime.split(':').map(Number);
+      const [endHour, endMinute] = endTime.split(':').map(Number);
+      
+      const startTotalMinutes = startHour * 60 + startMinute;
+      const endTotalMinutes = endHour * 60 + endMinute;
+      
+      const durationHours = (endTotalMinutes - startTotalMinutes) / 60;
+      const totalPrice = price * durationHours;
+      
+      // Tạo dữ liệu đặt sân
+      const bookingData = {
+        courtId: court.id,
+        courtName: court.name,
+        ownerId: court.ownerId,
+        userId: currentUser.uid,
+        customerName: userDetails?.displayName || currentUser.displayName || 'Khách hàng',
+        customerPhone: userDetails?.phoneNumber || '',
+        customerEmail: userDetails?.email || currentUser.email || '',
+        date: new Date(selectedDate),
+        startTime: startTime,
+        endTime: endTime,
+        time: selectedSlot,
+        duration: durationHours,
+        totalPrice: totalPrice,
+        sport: court.sport || 'Không xác định',
+        status: 'pending',
+        paymentStatus: 'unpaid',
+        paymentMethod: paymentMethod,
+        notes: note,
+        address: court.address || '',
+        createdAt: new Date(),
+        courtImage: court.image || ''
+      };
+      
+      console.log('Dữ liệu booking sẽ lưu vào Firestore:', bookingData);
+      console.log('Owner ID của sân:', court.ownerId);
+      
+      // Lưu thông tin đặt sân vào Firestore
+      const bookingsRef = collection(db, 'bookings');
+      const newBookingRef = await addDoc(bookingsRef, bookingData);
+      
+      console.log('Đã lưu booking mới vào Firestore với ID:', newBookingRef.id);
+      
+      // Hiển thị thông báo thành công
+      alert('Đặt sân thành công! Chủ sân sẽ xác nhận đặt sân của bạn sớm.');
+      
+      // Đóng dialog
+      setBookingOpen(false);
+      setSelectedSlot(null);
+      setNote('');
+      setPaymentMethod('cash');
+      
+    } catch (error) {
+      console.error('Lỗi khi đặt sân:', error);
+      alert('Có lỗi xảy ra khi đặt sân. Vui lòng thử lại sau.');
+    } finally {
+      setBookingLoading(false);
+    }
   };
   
   // Format price to VND
@@ -447,7 +530,7 @@ const CourtDetail = () => {
               <strong>Ngày:</strong> {new Date(selectedDate).toLocaleDateString('vi-VN')}
             </Typography>
             <Typography variant="body1" gutterBottom>
-              <strong>Giờ:</strong> {selectedSlot?.time}
+              <strong>Giờ:</strong> {selectedSlot}
             </Typography>
             <Typography variant="body1" gutterBottom>
               <strong>Giá:</strong> {selectedSlot ? formatPrice(selectedSlot.price) : ''}
@@ -458,7 +541,8 @@ const CourtDetail = () => {
               <Select
                 labelId="payment-method-label"
                 label="Phương thức thanh toán"
-                defaultValue="cash"
+                value={paymentMethod}
+                onChange={(e) => setPaymentMethod(e.target.value)}
               >
                 <MenuItem value="cash">Tiền mặt tại sân</MenuItem>
                 <MenuItem value="banking">Chuyển khoản ngân hàng</MenuItem>
@@ -472,13 +556,15 @@ const CourtDetail = () => {
               multiline
               rows={2}
               sx={{ mt: 2 }}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
               placeholder="Ghi chú thêm (nếu có)"
             />
           </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleBookingClose}>Hủy</Button>
-          <Button variant="contained" onClick={handleBooking}>
+          <Button variant="contained" onClick={handleBooking} disabled={bookingLoading}>
             Xác nhận đặt sân
           </Button>
         </DialogActions>

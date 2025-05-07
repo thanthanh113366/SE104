@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Box, 
   Typography, 
@@ -29,12 +29,17 @@ import {
   FormControl,
   InputLabel,
   Select,
-  Stack
+  Stack,
+  CircularProgress,
+  Alert
 } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { vi } from 'date-fns/locale';
+import { collection, query, where, getDocs, getDoc, doc, updateDoc, orderBy, Timestamp, limit } from 'firebase/firestore';
+import { db } from '../../firebase';
+import { useAuth } from '../../contexts/AuthContext';
 
 // Icons
 import SearchIcon from '@mui/icons-material/Search';
@@ -49,8 +54,9 @@ import PersonIcon from '@mui/icons-material/Person';
 import PhoneIcon from '@mui/icons-material/Phone';
 import MoneyIcon from '@mui/icons-material/Money';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
+import RefreshIcon from '@mui/icons-material/Refresh';
 
-// Dữ liệu mẫu
+// Dữ liệu mẫu để sử dụng khi không có dữ liệu thực
 const SAMPLE_BOOKINGS = [
   {
     id: 'b1',
@@ -70,101 +76,13 @@ const SAMPLE_BOOKINGS = [
     notes: 'Đặt sân cho 10 người',
     createdAt: '12/05/2023 09:15:22'
   },
-  {
-    id: 'b2',
-    courtId: 'court2',
-    courtName: 'Sân cầu lông Olympia',
-    customerName: 'Trần Thị B',
-    customerPhone: '0912345678',
-    customerEmail: 'tranthib@example.com',
-    date: '16/05/2023',
-    startTime: '07:00',
-    endTime: '09:00',
-    duration: 2,
-    totalPrice: 240000,
-    status: 'pending',
-    paymentStatus: 'pending',
-    paymentMethod: 'cash',
-    notes: 'Cần chuẩn bị vợt và cầu',
-    createdAt: '14/05/2023 14:30:45'
-  },
-  {
-    id: 'b3',
-    courtId: 'court3',
-    courtName: 'Sân bóng rổ Hòa Bình',
-    customerName: 'Lê Văn C',
-    customerPhone: '0923456789',
-    customerEmail: 'levanc@example.com',
-    date: '16/05/2023',
-    startTime: '15:30',
-    endTime: '17:00',
-    duration: 1.5,
-    totalPrice: 300000,
-    status: 'confirmed',
-    paymentStatus: 'paid',
-    paymentMethod: 'online',
-    notes: '',
-    createdAt: '13/05/2023 18:22:33'
-  },
-  {
-    id: 'b4',
-    courtId: 'court1',
-    courtName: 'Sân bóng đá Mini Thành Công',
-    customerName: 'Phạm Văn D',
-    customerPhone: '0934567890',
-    customerEmail: 'phamvand@example.com',
-    date: '17/05/2023',
-    startTime: '19:00',
-    endTime: '21:00',
-    duration: 2,
-    totalPrice: 600000,
-    status: 'cancelled',
-    paymentStatus: 'refunded',
-    paymentMethod: 'online',
-    notes: 'Hủy do thời tiết xấu',
-    createdAt: '14/05/2023 20:10:05'
-  },
-  {
-    id: 'b5',
-    courtId: 'court4',
-    courtName: 'Sân tennis Lakeview',
-    customerName: 'Hoàng Thị E',
-    customerPhone: '0945678901',
-    customerEmail: 'hoangthie@example.com',
-    date: '18/05/2023',
-    startTime: '08:00',
-    endTime: '10:00',
-    duration: 2,
-    totalPrice: 500000,
-    status: 'confirmed',
-    paymentStatus: 'paid',
-    paymentMethod: 'online',
-    notes: '',
-    createdAt: '15/05/2023 07:55:41'
-  },
-  // Thêm các booking khác
-  {
-    id: 'b6',
-    courtId: 'court2',
-    courtName: 'Sân cầu lông Olympia',
-    customerName: 'Trương Văn F',
-    customerPhone: '0956789012',
-    customerEmail: 'truongvanf@example.com',
-    date: '19/05/2023',
-    startTime: '16:00',
-    endTime: '18:00',
-    duration: 2,
-    totalPrice: 240000,
-    status: 'pending',
-    paymentStatus: 'pending',
-    paymentMethod: 'cash',
-    notes: '',
-    createdAt: '16/05/2023 10:12:33'
-  }
+  // Các booking khác...
 ];
 
 const CourtBookings = () => {
-  const [bookings, setBookings] = useState(SAMPLE_BOOKINGS);
+  const { currentUser } = useAuth();
+  const [bookings, setBookings] = useState([]);
+  const [courts, setCourts] = useState([]);
   const [tabValue, setTabValue] = useState(0);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(5);
@@ -174,11 +92,286 @@ const CourtBookings = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
   
   // State for filters
   const [dateFilter, setDateFilter] = useState(null);
   const [courtFilter, setCourtFilter] = useState('all');
   const [paymentFilter, setPaymentFilter] = useState('all');
+  
+  // Fetch bookings from Firestore
+  useEffect(() => {
+    fetchBookings();
+  }, [currentUser]);
+  
+  // Fetch courts list for filter dropdown
+  useEffect(() => {
+    const fetchCourts = async () => {
+      try {
+        if (!currentUser) return;
+        
+        const courtsRef = collection(db, 'courts');
+        const q = query(courtsRef, where('ownerId', '==', currentUser.uid));
+        const querySnapshot = await getDocs(q);
+        
+        const courtsList = [];
+        querySnapshot.forEach(doc => {
+          courtsList.push({
+            id: doc.id,
+            name: doc.data().name || 'Sân không tên'
+          });
+        });
+        
+        setCourts(courtsList);
+      } catch (err) {
+        console.error('Lỗi khi lấy danh sách sân:', err);
+      }
+    };
+    
+    fetchCourts();
+  }, [currentUser]);
+  
+  const fetchBookings = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      
+      if (!currentUser) {
+        console.log('Không có người dùng đăng nhập, sử dụng dữ liệu mẫu');
+        setBookings(SAMPLE_BOOKINGS);
+        return;
+      }
+      
+      console.log('Đang lấy dữ liệu lịch đặt sân cho chủ sân:', currentUser.uid);
+      
+      // Đầu tiên lấy tất cả bookings để debug
+      try {
+        console.log('Lấy tất cả bookings để debug');
+        const allBookingsRef = collection(db, 'bookings');
+        const allBookingsSnapshot = await getDocs(allBookingsRef);
+        
+        if (allBookingsSnapshot.empty) {
+          console.log('Không có booking nào trong cơ sở dữ liệu');
+        } else {
+          console.log(`Tổng số booking trong cơ sở dữ liệu: ${allBookingsSnapshot.size}`);
+          
+          // Hiển thị chi tiết từng booking để debug
+          allBookingsSnapshot.forEach(doc => {
+            const data = doc.data();
+            console.log('------------------------------------');
+            console.log(`Booking ID: ${doc.id}`);
+            console.log(`ownerId: "${data.ownerId || 'không có'}"`);
+            console.log(`courtId: "${data.courtId || 'không có'}"`);
+            console.log(`userId: "${data.userId || 'không có'}"`);
+            console.log(`Khách hàng: ${data.customerName || 'không có'}`);
+            
+            // Check if owner ID matches
+            if (data.ownerId === currentUser.uid) {
+              console.log('>>> MATCH: ownerId trùng khớp với currentUser.uid');
+            } else {
+              console.log('>>> NO MATCH: ownerId không trùng khớp với currentUser.uid');
+            }
+          });
+        }
+      } catch (debugErr) {
+        console.error('Lỗi khi lấy tất cả bookings để debug:', debugErr);
+      }
+      
+      // Lấy danh sách sân của chủ sân
+      let courtIds = [];
+      try {
+        const courtsRef = collection(db, 'courts');
+        const courtsQuery = query(courtsRef, where('ownerId', '==', currentUser.uid));
+        const courtsSnapshot = await getDocs(courtsQuery);
+        
+        if (courtsSnapshot.empty) {
+          console.log('Không tìm thấy sân nào của chủ sân này');
+        } else {
+          courtIds = courtsSnapshot.docs.map(doc => doc.id);
+          console.log('Danh sách ID sân của chủ sân:', courtIds);
+        }
+      } catch (err) {
+        console.error('Lỗi khi lấy danh sách sân:', err);
+      }
+      
+      // Phương pháp 1: Sử dụng chỉ where (không có orderBy) để tránh lỗi index
+      console.log('Phương pháp 1: Lấy booking theo ownerId (không có orderBy)');
+      const bookingsData = [];
+      
+      try {
+        const bookingsRef = collection(db, 'bookings');
+        const ownerBookingsQuery = query(
+          bookingsRef,
+          where('ownerId', '==', currentUser.uid)
+        );
+        
+        const ownerBookingsSnapshot = await getDocs(ownerBookingsQuery);
+        console.log(`Phương pháp 1: Tìm thấy ${ownerBookingsSnapshot.size} bookings với ownerId = ${currentUser.uid}`);
+        
+        // Thu thập dữ liệu booking từ kết quả tìm kiếm
+        ownerBookingsSnapshot.forEach(doc => {
+          const data = doc.data();
+          console.log(`Đã tìm thấy booking ID: ${doc.id}, Khách hàng: ${data.customerName}`);
+          bookingsData.push({ id: doc.id, ...data });
+        });
+      } catch (err) {
+        console.error('Lỗi khi lấy booking theo ownerId:', err);
+      }
+      
+      // Phương pháp 2: Sử dụng truy vấn theo courtId
+      if (courtIds.length > 0 && bookingsData.length === 0) {
+        console.log('Phương pháp 2: Lấy booking theo courtId (không có orderBy)');
+        
+        try {
+          // Truy vấn theo từng courtId riêng lẻ để tránh giới hạn "in" của Firestore
+          for (const courtId of courtIds) {
+            const bookingsRef = collection(db, 'bookings');
+            const courtBookingsQuery = query(
+              bookingsRef,
+              where('courtId', '==', courtId)
+            );
+            
+            const courtBookingsSnapshot = await getDocs(courtBookingsQuery);
+            console.log(`Phương pháp 2: Tìm thấy ${courtBookingsSnapshot.size} bookings với courtId = ${courtId}`);
+            
+            // Thu thập dữ liệu booking từ kết quả tìm kiếm
+            courtBookingsSnapshot.forEach(doc => {
+              const data = doc.data();
+              console.log(`Đã tìm thấy booking ID: ${doc.id}, Khách hàng: ${data.customerName}`);
+              
+              // Kiểm tra xem booking đã có trong mảng kết quả chưa
+              if (!bookingsData.some(b => b.id === doc.id)) {
+                bookingsData.push({ id: doc.id, ...data });
+              }
+            });
+          }
+        } catch (err) {
+          console.error('Lỗi khi lấy booking theo courtId:', err);
+        }
+      }
+      
+      console.log(`Tổng số unique bookings tìm thấy: ${bookingsData.length}`);
+      
+      if (bookingsData.length === 0) {
+        console.log('Không tìm thấy booking nào, sử dụng dữ liệu mẫu');
+        setBookings(SAMPLE_BOOKINGS);
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+      
+      // Xử lý và định dạng dữ liệu booking
+      const formattedBookings = bookingsData.map(data => {
+        try {
+          // Format ngày tháng
+          let formattedDate = 'Không rõ';
+          if (data.date) {
+            let dateObj;
+            if (data.date instanceof Timestamp) {
+              dateObj = data.date.toDate();
+            } else if (data.date.toDate && typeof data.date.toDate === 'function') {
+              dateObj = data.date.toDate();
+            } else if (data.date instanceof Date) {
+              dateObj = data.date;
+            } else if (typeof data.date === 'string') {
+              dateObj = new Date(data.date);
+            } else {
+              console.warn('Không thể xác định kiểu dữ liệu ngày:', data.date);
+              dateObj = new Date();
+            }
+            
+            formattedDate = dateObj.toLocaleDateString('vi-VN', {
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric'
+            });
+          }
+          
+          // Format thời gian tạo
+          let formattedCreatedAt = 'Không rõ';
+          if (data.createdAt) {
+            let createdAtObj;
+            if (data.createdAt instanceof Timestamp) {
+              createdAtObj = data.createdAt.toDate();
+            } else if (data.createdAt.toDate && typeof data.createdAt.toDate === 'function') {
+              createdAtObj = data.createdAt.toDate();
+            } else if (data.createdAt instanceof Date) {
+              createdAtObj = data.createdAt;
+            } else if (typeof data.createdAt === 'string') {
+              createdAtObj = new Date(data.createdAt);
+            } else {
+              console.warn('Không thể xác định kiểu dữ liệu thời gian tạo:', data.createdAt);
+              createdAtObj = new Date();
+            }
+            
+            formattedCreatedAt = createdAtObj.toLocaleDateString('vi-VN', {
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit'
+            });
+          }
+          
+          // Trả về đối tượng booking đã định dạng
+          return {
+            id: data.id,
+            courtId: data.courtId || '',
+            courtName: data.courtName || 'Không có tên',
+            customerName: data.customerName || 'Không rõ',
+            customerPhone: data.customerPhone || 'Không rõ',
+            customerEmail: data.customerEmail || 'Không rõ',
+            date: formattedDate,
+            startTime: data.startTime || '',
+            endTime: data.endTime || '',
+            time: data.time || `${data.startTime || '00:00'}-${data.endTime || '00:00'}`,
+            duration: data.duration || 0,
+            totalPrice: data.totalPrice || 0,
+            status: data.status || 'pending',
+            paymentStatus: data.paymentStatus || 'unpaid',
+            paymentMethod: data.paymentMethod || '',
+            notes: data.notes || '',
+            createdAt: formattedCreatedAt,
+            rawData: data // Lưu trữ dữ liệu gốc nếu cần
+          };
+        } catch (formatErr) {
+          console.error('Lỗi khi định dạng booking:', formatErr, data);
+          // Trả về dữ liệu mặc định nếu có lỗi
+          return {
+            id: data.id || 'unknown',
+            courtName: data.courtName || 'Lỗi định dạng',
+            customerName: data.customerName || 'Không rõ',
+            date: 'Không xác định',
+            time: 'Không xác định',
+            status: 'pending',
+            paymentStatus: 'unpaid'
+          };
+        }
+      });
+      
+      console.log('Dữ liệu bookings đã xử lý:', formattedBookings);
+      setBookings(formattedBookings);
+      
+    } catch (err) {
+      console.error('Lỗi chung khi lấy dữ liệu lịch đặt sân:', err);
+      setError(`Không thể tải dữ liệu lịch đặt sân: ${err.message}`);
+      
+      // Sử dụng dữ liệu mẫu nếu có lỗi
+      setBookings(SAMPLE_BOOKINGS);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+  
+  // Xử lý làm mới danh sách đặt sân
+  const handleRefresh = () => {
+    setRefreshing(true);
+    fetchBookings();
+  };
   
   // Xử lý thay đổi tab
   const handleTabChange = (event, newValue) => {
@@ -252,96 +445,181 @@ const CourtBookings = () => {
     setAnchorEl(null);
   };
   
-  // Mở dialog chi tiết booking
+  // Mở dialog chi tiết đặt sân
   const handleOpenDetailDialog = () => {
     setDialogOpen(true);
     handleMenuClose();
   };
   
-  // Đóng dialog chi tiết booking
+  // Đóng dialog chi tiết
   const handleCloseDetailDialog = () => {
     setDialogOpen(false);
   };
   
-  // Mở dialog hủy booking
+  // Mở dialog xác nhận hủy
   const handleOpenCancelDialog = () => {
     setCancelDialogOpen(true);
     handleMenuClose();
   };
   
-  // Đóng dialog hủy booking
+  // Đóng dialog xác nhận hủy
   const handleCloseCancelDialog = () => {
     setCancelDialogOpen(false);
   };
   
-  // Xử lý xác nhận booking
-  const handleConfirmBooking = (bookingId) => {
-    setBookings(bookings.map(booking => 
-      booking.id === bookingId 
-        ? { ...booking, status: 'confirmed' } 
-        : booking
-    ));
-    handleMenuClose();
+  // Xử lý xác nhận đặt sân
+  const handleConfirmBooking = async (bookingId) => {
+    try {
+      if (!bookingId) return;
+      
+      // Cập nhật trạng thái trong Firestore
+      const bookingRef = doc(db, 'bookings', bookingId);
+      await updateDoc(bookingRef, { 
+        status: 'confirmed',
+        updatedAt: new Date()
+      });
+      
+      console.log(`Đã xác nhận đặt sân ${bookingId}`);
+      
+      // Cập nhật state
+      setBookings(bookings.map(booking => {
+        if (booking.id === bookingId) {
+          return { ...booking, status: 'confirmed' };
+        }
+        return booking;
+      }));
+      
+      handleMenuClose();
+    } catch (err) {
+      console.error('Lỗi khi xác nhận đặt sân:', err);
+      setError('Không thể xác nhận đặt sân. Vui lòng thử lại sau.');
+    }
   };
   
-  // Xử lý hủy booking
-  const handleCancelBooking = () => {
-    setBookings(bookings.map(booking => 
-      booking.id === selectedBooking.id 
-        ? { ...booking, status: 'cancelled' } 
-        : booking
-    ));
-    handleCloseCancelDialog();
+  // Xử lý hủy đặt sân
+  const handleCancelBooking = async () => {
+    try {
+      if (!selectedBooking) return;
+      
+      // Cập nhật trạng thái trong Firestore
+      const bookingRef = doc(db, 'bookings', selectedBooking.id);
+      await updateDoc(bookingRef, { 
+        status: 'cancelled',
+        updatedAt: new Date()
+      });
+      
+      console.log(`Đã hủy đặt sân ${selectedBooking.id}`);
+      
+      // Cập nhật state
+      setBookings(bookings.map(booking => {
+        if (booking.id === selectedBooking.id) {
+          return { ...booking, status: 'cancelled' };
+        }
+        return booking;
+      }));
+      
+      handleCloseCancelDialog();
+    } catch (err) {
+      console.error('Lỗi khi hủy đặt sân:', err);
+      setError('Không thể hủy đặt sân. Vui lòng thử lại sau.');
+    }
   };
   
-  // Format tiền VND
+  // Format tiền Việt Nam
   const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' })
-      .format(amount)
-      .replace('₫', 'VNĐ');
+    return new Intl.NumberFormat('vi-VN', { 
+      style: 'currency', 
+      currency: 'VND' 
+    }).format(amount).replace('₫', 'VNĐ');
   };
   
-  // Hiển thị chip trạng thái booking
+  // Lấy chip hiển thị trạng thái
   const getStatusChip = (status) => {
     switch (status) {
       case 'pending':
-        return <Chip size="small" color="warning" label="Chờ xác nhận" icon={<AccessTimeIcon />} />;
+        return (
+          <Chip 
+            icon={<AccessTimeIcon fontSize="small" />} 
+            label="Chờ xác nhận" 
+            color="warning" 
+            size="small" 
+          />
+        );
       case 'confirmed':
-        return <Chip size="small" color="success" label="Đã xác nhận" icon={<CheckCircleIcon />} />;
+        return (
+          <Chip 
+            icon={<CheckCircleIcon fontSize="small" />} 
+            label="Đã xác nhận" 
+            color="success" 
+            size="small" 
+          />
+        );
       case 'cancelled':
-        return <Chip size="small" color="error" label="Đã hủy" icon={<CancelIcon />} />;
+        return (
+          <Chip 
+            icon={<CancelIcon fontSize="small" />} 
+            label="Đã hủy" 
+            color="error" 
+            size="small" 
+          />
+        );
       default:
-        return <Chip size="small" label={status} />;
+        return <Chip label={status} size="small" />;
     }
   };
   
-  // Hiển thị chip trạng thái thanh toán
+  // Lấy chip hiển thị trạng thái thanh toán
   const getPaymentStatusChip = (status) => {
     switch (status) {
       case 'paid':
-        return <Chip size="small" color="success" label="Đã thanh toán" />;
+        return <Chip label="Đã thanh toán" color="success" size="small" />;
       case 'pending':
-        return <Chip size="small" color="warning" label="Chưa thanh toán" />;
+        return <Chip label="Chưa thanh toán" color="warning" size="small" />;
       case 'refunded':
-        return <Chip size="small" color="info" label="Đã hoàn tiền" />;
+        return <Chip label="Đã hoàn tiền" color="info" size="small" />;
+      case 'partial':
+        return <Chip label="Thanh toán một phần" color="warning" size="small" />;
       default:
-        return <Chip size="small" label={status} />;
+        return <Chip label={status} size="small" />;
     }
+  };
+  
+  // Reset filter
+  const handleResetFilter = () => {
+    setDateFilter(null);
+    setCourtFilter('all');
+    setPaymentFilter('all');
+    setFilterDialogOpen(false);
   };
   
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
-      <Typography variant="h4" sx={{ mb: 3, fontWeight: 'bold' }}>
-        Quản lý lịch đặt sân
-      </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
+          Quản lý lịch đặt sân
+        </Typography>
+        <Button
+          variant="outlined"
+          startIcon={refreshing ? <CircularProgress size={20} /> : <RefreshIcon />}
+          onClick={handleRefresh}
+          disabled={refreshing}
+        >
+          {refreshing ? 'Đang làm mới...' : 'Làm mới'}
+        </Button>
+      </Box>
       
-      {/* Thanh công cụ tìm kiếm và lọc */}
-      <Paper sx={{ p: 2, mb: 3, borderRadius: 2 }}>
-        <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} md={6}>
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+      
+      <Box sx={{ mb: 3 }}>
+        <Grid container spacing={2}>
+          <Grid item xs={12} md={8}>
             <TextField
               fullWidth
-              placeholder="Tìm kiếm theo tên khách hàng, số điện thoại hoặc tên sân"
+              placeholder="Tìm kiếm theo tên, số điện thoại khách hàng hoặc tên sân..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               InputProps={{
@@ -353,26 +631,8 @@ const CourtBookings = () => {
               }}
             />
           </Grid>
-          
           <Grid item xs={12} md={4}>
-            <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={vi}>
-              <DatePicker
-                label="Lọc theo ngày"
-                value={dateFilter}
-                onChange={(newValue) => setDateFilter(newValue)}
-                renderInput={(params) => <TextField {...params} fullWidth />}
-                slotProps={{
-                  textField: {
-                    fullWidth: true,
-                    variant: 'outlined'
-                  }
-                }}
-              />
-            </LocalizationProvider>
-          </Grid>
-          
-          <Grid item xs={12} md={2}>
-            <Button 
+            <Button
               fullWidth
               variant="outlined"
               startIcon={<FilterListIcon />}
@@ -382,7 +642,7 @@ const CourtBookings = () => {
             </Button>
           </Grid>
         </Grid>
-      </Paper>
+      </Box>
       
       {/* Tab và bảng hiển thị */}
       <Paper sx={{ borderRadius: 2 }}>
@@ -399,71 +659,80 @@ const CourtBookings = () => {
           <Tab label="Tất cả" />
         </Tabs>
         
-        <TableContainer>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Mã đặt sân</TableCell>
-                <TableCell>Khách hàng</TableCell>
-                <TableCell>Sân</TableCell>
-                <TableCell>Ngày</TableCell>
-                <TableCell>Thời gian</TableCell>
-                <TableCell>Giá tiền</TableCell>
-                <TableCell>Trạng thái</TableCell>
-                <TableCell>Thanh toán</TableCell>
-                <TableCell align="right">Thao tác</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {filteredBookings
-                .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-                .map((booking) => (
-                  <TableRow key={booking.id} hover>
-                    <TableCell>{booking.id}</TableCell>
-                    <TableCell>{booking.customerName}</TableCell>
-                    <TableCell>{booking.courtName}</TableCell>
-                    <TableCell>{booking.date}</TableCell>
-                    <TableCell>{`${booking.startTime} - ${booking.endTime}`}</TableCell>
-                    <TableCell>{formatCurrency(booking.totalPrice)}</TableCell>
-                    <TableCell>{getStatusChip(booking.status)}</TableCell>
-                    <TableCell>{getPaymentStatusChip(booking.paymentStatus)}</TableCell>
-                    <TableCell align="right">
-                      <IconButton
-                        onClick={(e) => handleMenuClick(e, booking)}
-                        size="small"
-                      >
-                        <MoreVertIcon />
-                      </IconButton>
-                    </TableCell>
+        {loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', p: 4 }}>
+            <CircularProgress />
+          </Box>
+        ) : (
+          <>
+            <TableContainer>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Mã đặt sân</TableCell>
+                    <TableCell>Khách hàng</TableCell>
+                    <TableCell>Sân</TableCell>
+                    <TableCell>Ngày</TableCell>
+                    <TableCell>Thời gian</TableCell>
+                    <TableCell>Giá tiền</TableCell>
+                    <TableCell>Trạng thái</TableCell>
+                    <TableCell>Thanh toán</TableCell>
+                    <TableCell align="right">Thao tác</TableCell>
                   </TableRow>
-                ))}
-              {filteredBookings.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={9} align="center" sx={{ py: 3 }}>
-                    <Typography variant="subtitle1">
-                      Không tìm thấy lịch đặt sân nào phù hợp
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-        
-        <TablePagination
-          rowsPerPageOptions={[5, 10, 25]}
-          component="div"
-          count={filteredBookings.length}
-          rowsPerPage={rowsPerPage}
-          page={page}
-          onPageChange={handleChangePage}
-          onRowsPerPageChange={handleChangeRowsPerPage}
-          labelRowsPerPage="Số hàng mỗi trang:"
-          labelDisplayedRows={({ from, to, count }) => `${from}-${to} trong ${count}`}
-        />
+                </TableHead>
+                <TableBody>
+                  {filteredBookings.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={9} align="center" sx={{ py: 3 }}>
+                        <Typography variant="subtitle1">
+                          Không tìm thấy lịch đặt sân nào phù hợp
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredBookings
+                      .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+                      .map((booking) => (
+                        <TableRow key={booking.id} hover>
+                          <TableCell>{booking.id}</TableCell>
+                          <TableCell>{booking.customerName}</TableCell>
+                          <TableCell>{booking.courtName}</TableCell>
+                          <TableCell>{booking.date}</TableCell>
+                          <TableCell>{`${booking.startTime} - ${booking.endTime}`}</TableCell>
+                          <TableCell>{formatCurrency(booking.totalPrice)}</TableCell>
+                          <TableCell>{getStatusChip(booking.status)}</TableCell>
+                          <TableCell>{getPaymentStatusChip(booking.paymentStatus)}</TableCell>
+                          <TableCell align="right">
+                            <IconButton
+                              onClick={(e) => handleMenuClick(e, booking)}
+                              size="small"
+                            >
+                              <MoreVertIcon />
+                            </IconButton>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+            
+            <TablePagination
+              rowsPerPageOptions={[5, 10, 25]}
+              component="div"
+              count={filteredBookings.length}
+              rowsPerPage={rowsPerPage}
+              page={page}
+              onPageChange={handleChangePage}
+              onRowsPerPageChange={handleChangeRowsPerPage}
+              labelRowsPerPage="Số hàng mỗi trang:"
+              labelDisplayedRows={({ from, to, count }) => `${from}-${to} của ${count}`}
+            />
+          </>
+        )}
       </Paper>
       
-      {/* Menu tùy chọn */}
+      {/* Menu for booking actions */}
       <Menu
         anchorEl={anchorEl}
         open={Boolean(anchorEl)}
@@ -474,161 +743,146 @@ const CourtBookings = () => {
           Xem chi tiết
         </MenuItem>
         
-        {selectedBooking?.status === 'pending' && (
+        {selectedBooking && selectedBooking.status === 'pending' && (
           <MenuItem onClick={() => handleConfirmBooking(selectedBooking.id)}>
-            <CheckCircleIcon fontSize="small" sx={{ mr: 1, color: 'success.main' }} />
+            <CheckCircleIcon fontSize="small" sx={{ mr: 1 }} />
             Xác nhận đặt sân
           </MenuItem>
         )}
         
-        {(selectedBooking?.status === 'pending' || selectedBooking?.status === 'confirmed') && (
-          <MenuItem onClick={handleOpenCancelDialog} sx={{ color: 'error.main' }}>
+        {selectedBooking && (selectedBooking.status === 'pending' || selectedBooking.status === 'confirmed') && (
+          <MenuItem onClick={handleOpenCancelDialog}>
             <CancelIcon fontSize="small" sx={{ mr: 1 }} />
             Hủy đặt sân
           </MenuItem>
         )}
       </Menu>
       
-      {/* Dialog chi tiết đặt sân */}
+      {/* Dialog for viewing booking details */}
       <Dialog
         open={dialogOpen}
         onClose={handleCloseDetailDialog}
-        maxWidth="md"
+        maxWidth="sm"
         fullWidth
       >
         {selectedBooking && (
           <>
             <DialogTitle>
-              Chi tiết đặt sân #{selectedBooking.id}
-              <Box sx={{ position: 'absolute', right: 16, top: 12 }}>
-                {getStatusChip(selectedBooking.status)}
-              </Box>
+              Chi tiết đặt sân
             </DialogTitle>
-            <DialogContent>
-              <Grid container spacing={3}>
-                <Grid item xs={12} md={6}>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', mb: 2 }}>
-                    <SportsSoccerIcon sx={{ mr: 1 }} /> Thông tin sân
-                  </Typography>
+            <DialogContent dividers>
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="subtitle1" sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', mb: 2 }}>
+                  <SportsSoccerIcon sx={{ mr: 1 }} /> Thông tin sân
+                </Typography>
+                
+                <Stack spacing={2} sx={{ mb: 3 }}>
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">Tên sân</Typography>
+                    <Typography variant="body1">{selectedBooking.courtName}</Typography>
+                  </Box>
                   
-                  <Stack spacing={2} sx={{ mb: 3 }}>
-                    <Box>
-                      <Typography variant="body2" color="text.secondary">Tên sân</Typography>
-                      <Typography variant="body1">{selectedBooking.courtName}</Typography>
-                    </Box>
-                    
-                    <Box>
-                      <Typography variant="body2" color="text.secondary">Ngày đặt</Typography>
-                      <Typography variant="body1" sx={{ display: 'flex', alignItems: 'center' }}>
-                        <CalendarTodayIcon fontSize="small" sx={{ mr: 1 }} />
-                        {selectedBooking.date}
-                      </Typography>
-                    </Box>
-                    
-                    <Box>
-                      <Typography variant="body2" color="text.secondary">Thời gian</Typography>
-                      <Typography variant="body1" sx={{ display: 'flex', alignItems: 'center' }}>
-                        <AccessTimeIcon fontSize="small" sx={{ mr: 1 }} />
-                        {selectedBooking.startTime} - {selectedBooking.endTime} ({selectedBooking.duration} giờ)
-                      </Typography>
-                    </Box>
-                  </Stack>
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">Ngày đặt</Typography>
+                    <Typography variant="body1" sx={{ display: 'flex', alignItems: 'center' }}>
+                      <CalendarTodayIcon fontSize="small" sx={{ mr: 1 }} />
+                      {selectedBooking.date}
+                    </Typography>
+                  </Box>
                   
-                  <Typography variant="subtitle1" sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', mb: 2 }}>
-                    <MoneyIcon sx={{ mr: 1 }} /> Thông tin thanh toán
-                  </Typography>
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">Thời gian</Typography>
+                    <Typography variant="body1" sx={{ display: 'flex', alignItems: 'center' }}>
+                      <AccessTimeIcon fontSize="small" sx={{ mr: 1 }} />
+                      {selectedBooking.startTime} - {selectedBooking.endTime} ({selectedBooking.duration} giờ)
+                    </Typography>
+                  </Box>
+                </Stack>
+                
+                <Typography variant="subtitle1" sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', mb: 2 }}>
+                  <MoneyIcon sx={{ mr: 1 }} /> Thông tin thanh toán
+                </Typography>
+                
+                <Stack spacing={2} sx={{ mb: 3 }}>
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">Tổng tiền</Typography>
+                    <Typography variant="body1">{formatCurrency(selectedBooking.totalPrice)}</Typography>
+                  </Box>
                   
-                  <Stack spacing={2}>
-                    <Box>
-                      <Typography variant="body2" color="text.secondary">Tổng tiền</Typography>
-                      <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
-                        {formatCurrency(selectedBooking.totalPrice)}
-                      </Typography>
-                    </Box>
-                    
-                    <Box>
-                      <Typography variant="body2" color="text.secondary">Phương thức thanh toán</Typography>
-                      <Typography variant="body1">
-                        {selectedBooking.paymentMethod === 'online' ? 'Thanh toán online' : 'Tiền mặt'}
-                      </Typography>
-                    </Box>
-                    
-                    <Box>
-                      <Typography variant="body2" color="text.secondary">Trạng thái thanh toán</Typography>
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">Trạng thái thanh toán</Typography>
+                    <Box sx={{ mt: 0.5 }}>
                       {getPaymentStatusChip(selectedBooking.paymentStatus)}
                     </Box>
-                  </Stack>
-                </Grid>
+                  </Box>
+                  
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">Phương thức thanh toán</Typography>
+                    <Typography variant="body1">{selectedBooking.paymentMethod}</Typography>
+                  </Box>
+                </Stack>
                 
-                <Grid item xs={12} md={6}>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', mb: 2 }}>
-                    <PersonIcon sx={{ mr: 1 }} /> Thông tin khách hàng
-                  </Typography>
+                <Typography variant="subtitle1" sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', mb: 2 }}>
+                  <PersonIcon sx={{ mr: 1 }} /> Thông tin khách hàng
+                </Typography>
+                
+                <Stack spacing={2}>
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">Họ tên</Typography>
+                    <Typography variant="body1">{selectedBooking.customerName}</Typography>
+                  </Box>
                   
-                  <Stack spacing={2} sx={{ mb: 3 }}>
-                    <Box>
-                      <Typography variant="body2" color="text.secondary">Họ tên</Typography>
-                      <Typography variant="body1">{selectedBooking.customerName}</Typography>
-                    </Box>
-                    
-                    <Box>
-                      <Typography variant="body2" color="text.secondary">Số điện thoại</Typography>
-                      <Typography variant="body1" sx={{ display: 'flex', alignItems: 'center' }}>
-                        <PhoneIcon fontSize="small" sx={{ mr: 1 }} />
-                        {selectedBooking.customerPhone}
-                      </Typography>
-                    </Box>
-                    
-                    <Box>
-                      <Typography variant="body2" color="text.secondary">Email</Typography>
-                      <Typography variant="body1">{selectedBooking.customerEmail}</Typography>
-                    </Box>
-                  </Stack>
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">Số điện thoại</Typography>
+                    <Typography variant="body1" sx={{ display: 'flex', alignItems: 'center' }}>
+                      <PhoneIcon fontSize="small" sx={{ mr: 1 }} />
+                      {selectedBooking.customerPhone}
+                    </Typography>
+                  </Box>
                   
-                  <Typography variant="subtitle1" sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', mb: 2 }}>
-                    <EventNoteIcon sx={{ mr: 1 }} /> Thông tin bổ sung
-                  </Typography>
+                  <Box>
+                    <Typography variant="body2" color="text.secondary">Email</Typography>
+                    <Typography variant="body1">{selectedBooking.customerEmail}</Typography>
+                  </Box>
                   
-                  <Stack spacing={2}>
+                  {selectedBooking.notes && (
                     <Box>
                       <Typography variant="body2" color="text.secondary">Ghi chú</Typography>
-                      <Typography variant="body1">
-                        {selectedBooking.notes || 'Không có ghi chú'}
-                      </Typography>
+                      <Typography variant="body1">{selectedBooking.notes}</Typography>
                     </Box>
-                    
-                    <Box>
-                      <Typography variant="body2" color="text.secondary">Thời gian đặt sân</Typography>
-                      <Typography variant="body1">{selectedBooking.createdAt}</Typography>
-                    </Box>
-                  </Stack>
-                </Grid>
-              </Grid>
+                  )}
+                </Stack>
+              </Box>
             </DialogContent>
             <DialogActions>
-              <Button onClick={handleCloseDetailDialog}>Đóng</Button>
-              
+              <Button
+                onClick={handleCloseDetailDialog}
+                variant="outlined"
+              >
+                Đóng
+              </Button>
               {selectedBooking.status === 'pending' && (
-                <Button 
-                  variant="contained" 
-                  color="success"
+                <Button
                   onClick={() => {
                     handleConfirmBooking(selectedBooking.id);
                     handleCloseDetailDialog();
                   }}
+                  variant="contained"
+                  color="primary"
+                  startIcon={<CheckCircleIcon />}
                 >
                   Xác nhận đặt sân
                 </Button>
               )}
-              
               {(selectedBooking.status === 'pending' || selectedBooking.status === 'confirmed') && (
-                <Button 
-                  variant="outlined" 
-                  color="error"
+                <Button
                   onClick={() => {
                     handleCloseDetailDialog();
                     handleOpenCancelDialog();
                   }}
+                  variant="contained"
+                  color="error"
+                  startIcon={<CancelIcon />}
                 >
                   Hủy đặt sân
                 </Button>
@@ -638,91 +892,109 @@ const CourtBookings = () => {
         )}
       </Dialog>
       
-      {/* Dialog hủy đặt sân */}
+      {/* Dialog for canceling booking */}
       <Dialog
         open={cancelDialogOpen}
         onClose={handleCloseCancelDialog}
       >
-        <DialogTitle>Xác nhận hủy đặt sân</DialogTitle>
+        <DialogTitle>
+          Xác nhận hủy đặt sân
+        </DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Bạn có chắc chắn muốn hủy đơn đặt sân này? Hành động này không thể hoàn tác.
+            Bạn có chắc chắn muốn hủy đặt sân này không? Hành động này có thể ảnh hưởng đến trải nghiệm của khách hàng.
           </DialogContentText>
-          <Box sx={{ mt: 2 }}>
-            <Typography variant="subtitle2">Thông tin đặt sân:</Typography>
-            <Typography variant="body2">
-              {selectedBooking?.courtName}, ngày {selectedBooking?.date}, {selectedBooking?.startTime} - {selectedBooking?.endTime}
-            </Typography>
-            <Typography variant="body2">
-              Khách hàng: {selectedBooking?.customerName}
-            </Typography>
-          </Box>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseCancelDialog}>Không hủy</Button>
-          <Button onClick={handleCancelBooking} color="error" variant="contained">
-            Xác nhận hủy
+          <Button onClick={handleCloseCancelDialog}>
+            Không
+          </Button>
+          <Button onClick={handleCancelBooking} color="error">
+            Đồng ý
           </Button>
         </DialogActions>
       </Dialog>
       
-      {/* Dialog lọc nâng cao */}
+      {/* Dialog for advanced filtering */}
       <Dialog
         open={filterDialogOpen}
         onClose={() => setFilterDialogOpen(false)}
-        maxWidth="xs"
+        maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Lọc nâng cao</DialogTitle>
+        <DialogTitle>
+          Lọc nâng cao
+        </DialogTitle>
         <DialogContent>
-          <Stack spacing={3} sx={{ mt: 1 }}>
-            <FormControl fullWidth>
-              <InputLabel>Sân thể thao</InputLabel>
-              <Select
-                value={courtFilter}
-                label="Sân thể thao"
-                onChange={(e) => setCourtFilter(e.target.value)}
-              >
-                <MenuItem value="all">Tất cả các sân</MenuItem>
-                <MenuItem value="court1">Sân bóng đá Mini Thành Công</MenuItem>
-                <MenuItem value="court2">Sân cầu lông Olympia</MenuItem>
-                <MenuItem value="court3">Sân bóng rổ Hòa Bình</MenuItem>
-                <MenuItem value="court4">Sân tennis Lakeview</MenuItem>
-              </Select>
-            </FormControl>
+          <Grid container spacing={3} sx={{ mt: 0.5 }}>
+            <Grid item xs={12}>
+              <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={vi}>
+                <DatePicker
+                  label="Lọc theo ngày"
+                  value={dateFilter}
+                  onChange={(newValue) => setDateFilter(newValue)}
+                  renderInput={(params) => <TextField {...params} fullWidth />}
+                  inputFormat="dd/MM/yyyy"
+                />
+              </LocalizationProvider>
+            </Grid>
             
-            <FormControl fullWidth>
-              <InputLabel>Trạng thái thanh toán</InputLabel>
-              <Select
-                value={paymentFilter}
-                label="Trạng thái thanh toán"
-                onChange={(e) => setPaymentFilter(e.target.value)}
-              >
-                <MenuItem value="all">Tất cả</MenuItem>
-                <MenuItem value="paid">Đã thanh toán</MenuItem>
-                <MenuItem value="pending">Chưa thanh toán</MenuItem>
-                <MenuItem value="refunded">Đã hoàn tiền</MenuItem>
-              </Select>
-            </FormControl>
-          </Stack>
+            <Grid item xs={12}>
+              <FormControl fullWidth>
+                <InputLabel id="court-filter-label">Sân</InputLabel>
+                <Select
+                  labelId="court-filter-label"
+                  value={courtFilter}
+                  label="Sân"
+                  onChange={(e) => setCourtFilter(e.target.value)}
+                >
+                  <MenuItem value="all">Tất cả sân</MenuItem>
+                  {courts.map((court) => (
+                    <MenuItem key={court.id} value={court.id}>
+                      {court.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            
+            <Grid item xs={12}>
+              <FormControl fullWidth>
+                <InputLabel id="payment-filter-label">Trạng thái thanh toán</InputLabel>
+                <Select
+                  labelId="payment-filter-label"
+                  value={paymentFilter}
+                  label="Trạng thái thanh toán"
+                  onChange={(e) => setPaymentFilter(e.target.value)}
+                >
+                  <MenuItem value="all">Tất cả</MenuItem>
+                  <MenuItem value="paid">Đã thanh toán</MenuItem>
+                  <MenuItem value="pending">Chưa thanh toán</MenuItem>
+                  <MenuItem value="refunded">Đã hoàn tiền</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+          </Grid>
         </DialogContent>
         <DialogActions>
-          <Button 
-            onClick={() => {
-              setCourtFilter('all');
-              setPaymentFilter('all');
-            }}
-          >
+          <Button onClick={handleResetFilter}>
             Đặt lại
           </Button>
-          <Button 
-            variant="contained"
+          <Button
             onClick={() => setFilterDialogOpen(false)}
+            variant="contained"
           >
             Áp dụng
           </Button>
         </DialogActions>
       </Dialog>
+      
+      {/* Hiển thị thời gian cập nhật gần nhất */}
+      <Box sx={{ mt: 2, textAlign: 'center', color: 'text.secondary' }}>
+        <Typography variant="caption">
+          Cập nhật lúc: {new Date().toLocaleTimeString()}
+        </Typography>
+      </Box>
     </Box>
   );
 };

@@ -238,12 +238,6 @@ const OwnerDashboard = () => {
           </Button>
         </Box>
 
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
-
         <Grid container spacing={3}>
           {courts.map((court) => (
             <Grid item xs={12} sm={6} md={4} key={court.id}>

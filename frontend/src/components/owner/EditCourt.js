@@ -11,9 +11,13 @@ import {
   Switch,
   Divider,
   InputAdornment,
-  CircularProgress
+  CircularProgress,
+  Alert
 } from '@mui/material';
 import { useNavigate, useParams } from 'react-router-dom';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { db } from '../../firebase';
+import { useAuth } from '../../contexts/AuthContext';
 
 // Icons
 import SaveIcon from '@mui/icons-material/Save';
@@ -23,81 +27,97 @@ import LocationOnIcon from '@mui/icons-material/LocationOn';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import MoneyIcon from '@mui/icons-material/Money';
 
-// Dữ liệu mẫu
-const SAMPLE_COURTS = [
-  {
-    id: 'court1',
-    name: 'Sân bóng đá Mini Thành Công',
-    address: '123 Nguyễn Văn Linh, Quận 7, TP.HCM',
-    description: 'Sân cỏ nhân tạo 5 người, có đèn chiếu sáng buổi tối',
-    sport: 'football',
-    sportName: 'Bóng đá',
-    price: 300000,
-    openTime: '06:00',
-    closeTime: '22:00',
-    images: [
-      'https://images.unsplash.com/photo-1529900748604-07564a03e7a6?w=800&auto=format&fit=crop',
-      'https://images.unsplash.com/photo-1536122985607-4fe00c07d587?w=800&auto=format&fit=crop',
-    ],
-    facilities: 'Đèn chiếu sáng, Nhà vệ sinh, Nước uống, Wifi',
-    isAvailable: true,
-    status: 'active',
-    totalBookings: 48,
-    totalRevenue: 14400000,
-    rating: 4.7
-  },
-  {
-    id: 'court2',
-    name: 'Sân cầu lông Olympia',
-    address: '45 Lê Văn Việt, Quận 9, TP.HCM',
-    description: 'Sân cầu lông tiêu chuẩn, mặt sân tốt, ánh sáng đều',
-    sport: 'badminton',
-    sportName: 'Cầu lông',
-    price: 120000,
-    openTime: '07:00',
-    closeTime: '21:00',
-    images: [
-      'https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?w=800&auto=format&fit=crop',
-    ],
-    facilities: 'Đèn chiếu sáng, Phòng thay đồ, Gửi xe',
-    isAvailable: true,
-    status: 'active',
-    totalBookings: 32,
-    totalRevenue: 3840000,
-    rating: 4.5
-  }
-];
+// Map tên loại sân
+const SPORT_NAMES = {
+  'football': 'Bóng đá',
+  'basketball': 'Bóng rổ',
+  'tennis': 'Tennis',
+  'badminton': 'Cầu lông',
+  'volleyball': 'Bóng chuyền'
+};
 
 const EditCourt = () => {
   const navigate = useNavigate();
   const { courtId } = useParams();
+  const { currentUser } = useAuth();
   const [loading, setLoading] = useState(true);
   const [courtData, setCourtData] = useState(null);
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
   
-  // Fetch court data
+  // Fetch court data from Firestore
   useEffect(() => {
-    // Trong thực tế, bạn sẽ gọi API để lấy dữ liệu sân
-    const fetchCourt = () => {
-      // Giả lập API call
-      setTimeout(() => {
-        const court = SAMPLE_COURTS.find(c => c.id === courtId);
-        if (court) {
-          // Chuẩn bị dữ liệu
-          setCourtData({
-            ...court,
-            facilities: court.facilities || ''
-          });
-        } else {
-          // Xử lý khi không tìm thấy sân
-          console.error('Court not found');
-          navigate('/owner/courts');
+    const fetchCourt = async () => {
+      try {
+        setLoading(true);
+        console.log('Đang lấy thông tin sân với ID:', courtId);
+        
+        if (!courtId) {
+          setError('Không tìm thấy ID sân');
+          setLoading(false);
+          return;
         }
+        
+        const courtRef = doc(db, 'courts', courtId);
+        const courtDoc = await getDoc(courtRef);
+        
+        if (courtDoc.exists()) {
+          const data = courtDoc.data();
+          
+          // Kiểm tra quyền sở hữu
+          if (data.ownerId !== currentUser?.uid) {
+            setError('Bạn không có quyền chỉnh sửa sân này');
+            setLoading(false);
+            setTimeout(() => navigate('/owner/courts'), 2000);
+            return;
+          }
+          
+          console.log('Đã tìm thấy dữ liệu sân:', data);
+          
+          // Chuyển đổi facilities từ mảng sang chuỗi nếu cần
+          let facilitiesString = '';
+          if (Array.isArray(data.facilities)) {
+            facilitiesString = data.facilities.join(', ');
+          } else if (typeof data.facilities === 'string') {
+            facilitiesString = data.facilities;
+          }
+          
+          setCourtData({
+            id: courtId,
+            name: data.name || '',
+            address: data.address || '',
+            description: data.description || '',
+            sport: data.sport || 'football',
+            sportName: SPORT_NAMES[data.sport] || 'Bóng đá',
+            price: data.price || 0,
+            openTime: data.openTime || '06:00',
+            closeTime: data.closeTime || '22:00',
+            facilities: facilitiesString,
+            isAvailable: data.status === 'active',
+            status: data.status || 'active',
+            image: data.image || ''
+          });
+          
+        } else {
+          console.error('Không tìm thấy sân với ID:', courtId);
+          setError('Không tìm thấy thông tin sân');
+          setTimeout(() => navigate('/owner/courts'), 2000);
+        }
+      } catch (err) {
+        console.error('Lỗi khi lấy thông tin sân:', err);
+        setError('Đã xảy ra lỗi khi tải thông tin sân: ' + err.message);
+      } finally {
         setLoading(false);
-      }, 500);
+      }
     };
     
-    fetchCourt();
-  }, [courtId, navigate]);
+    if (currentUser) {
+      fetchCourt();
+    } else {
+      setError('Bạn cần đăng nhập để chỉnh sửa sân');
+      setLoading(false);
+    }
+  }, [courtId, navigate, currentUser]);
   
   const handleChange = (e) => {
     const { name, value, checked } = e.target;
@@ -107,19 +127,81 @@ const EditCourt = () => {
     });
   };
   
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    // Xử lý cập nhật sân (trong thực tế sẽ gọi API)
-    console.log('Updated court data:', courtData);
     
-    // Chuyển về trang quản lý sân
-    navigate('/owner/courts');
+    if (!courtData || !courtId) {
+      setError('Không có dữ liệu sân để cập nhật');
+      return;
+    }
+    
+    try {
+      setSaving(true);
+      
+      // Chuyển đổi facilities từ chuỗi thành mảng
+      const facilitiesArray = courtData.facilities
+        ? courtData.facilities.split(',').map(item => item.trim())
+        : [];
+      
+      // Dữ liệu sân cập nhật
+      const updatedCourtData = {
+        name: courtData.name,
+        address: courtData.address,
+        description: courtData.description,
+        sport: courtData.sport,
+        price: Number(courtData.price),
+        openTime: courtData.openTime,
+        closeTime: courtData.closeTime,
+        facilities: facilitiesArray,
+        status: courtData.isAvailable ? 'active' : 'inactive',
+        updatedAt: new Date()
+      };
+      
+      // Cập nhật trong Firestore
+      const courtRef = doc(db, 'courts', courtId);
+      await updateDoc(courtRef, updatedCourtData);
+      
+      console.log('Đã cập nhật sân thành công:', courtId);
+      
+      // Chuyển về trang quản lý sân
+      navigate('/owner/courts');
+    } catch (err) {
+      console.error('Lỗi khi cập nhật sân:', err);
+      setError('Đã xảy ra lỗi khi cập nhật sân: ' + err.message);
+      setSaving(false);
+    }
   };
   
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 400 }}>
         <CircularProgress />
+      </Box>
+    );
+  }
+  
+  if (error) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+        <Button variant="contained" onClick={() => navigate('/owner/courts')}>
+          Quay lại danh sách sân
+        </Button>
+      </Box>
+    );
+  }
+  
+  if (!courtData) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Alert severity="warning">
+          Không tìm thấy thông tin sân
+        </Alert>
+        <Button variant="contained" onClick={() => navigate('/owner/courts')} sx={{ mt: 2 }}>
+          Quay lại danh sách sân
+        </Button>
       </Box>
     );
   }
@@ -264,14 +346,26 @@ const EditCourt = () => {
             </Grid>
             
             <Grid item xs={12}>
+              <Divider sx={{ my: 2 }} />
+            </Grid>
+            
+            <Grid item xs={12}>
+              <Typography variant="h6" sx={{ mb: 2 }}>
+                Tiện ích
+              </Typography>
               <TextField
                 fullWidth
-                label="Tiện ích (phân cách bởi dấu phẩy)"
+                label="Tiện ích (phân cách bằng dấu phẩy)"
                 name="facilities"
                 value={courtData.facilities}
                 onChange={handleChange}
-                placeholder="Ví dụ: Đèn chiếu sáng, Nhà vệ sinh, Nước uống, Wifi"
+                placeholder="Ví dụ: Đèn chiếu sáng, Nhà vệ sinh, Wifi, Chỗ để xe, Phòng thay đồ..."
+                helperText="Nhập các tiện ích của sân, cách nhau bởi dấu phẩy"
               />
+            </Grid>
+            
+            <Grid item xs={12}>
+              <Divider sx={{ my: 2 }} />
             </Grid>
             
             <Grid item xs={12}>
@@ -281,15 +375,10 @@ const EditCourt = () => {
                     checked={courtData.isAvailable}
                     onChange={handleChange}
                     name="isAvailable"
-                    color="success"
                   />
                 }
-                label="Sân đang hoạt động"
+                label={courtData.isAvailable ? "Đang hoạt động" : "Tạm ngưng"}
               />
-            </Grid>
-            
-            <Grid item xs={12}>
-              <Divider sx={{ my: 2 }} />
             </Grid>
             
             <Grid item xs={12}>
@@ -299,6 +388,7 @@ const EditCourt = () => {
                   color="error"
                   startIcon={<CancelIcon />}
                   onClick={() => navigate('/owner/courts')}
+                  disabled={saving}
                 >
                   Hủy
                 </Button>
@@ -306,9 +396,10 @@ const EditCourt = () => {
                   type="submit"
                   variant="contained"
                   color="primary"
-                  startIcon={<SaveIcon />}
+                  startIcon={saving ? <CircularProgress size={20} /> : <SaveIcon />}
+                  disabled={saving}
                 >
-                  Lưu thay đổi
+                  {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
                 </Button>
               </Box>
             </Grid>

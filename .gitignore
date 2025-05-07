@@ -53,6 +53,7 @@ firebase-debug.log
 firestore-debug.log
 ui-debug.log
 **/firebase-config.json
+**/firebase.config.js
 
 # VSCode
 .vscode/ 

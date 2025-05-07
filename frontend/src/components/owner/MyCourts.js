@@ -27,7 +27,7 @@ import {
   Alert
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import { collection, query, where, getDocs, doc, deleteDoc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, deleteDoc, updateDoc, limit } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -46,6 +46,7 @@ import LocalAtmIcon from '@mui/icons-material/LocalAtm';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import SortIcon from '@mui/icons-material/Sort';
+import RefreshIcon from '@mui/icons-material/Refresh';
 
 // Dữ liệu mẫu cho danh sách sân
 const SAMPLE_COURTS = [
@@ -155,97 +156,138 @@ const MyCourts = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [lastUpdated, setLastUpdated] = useState(new Date());
   
-  // Fetch courts from Firestore
+  // Kiểm tra kết nối internet
   useEffect(() => {
-    const fetchCourts = async () => {
+    // Hàm xử lý khi trạng thái kết nối thay đổi
+    const handleConnectionChange = () => {
+      const online = navigator.onLine;
+      setIsOnline(online);
+      if (online) {
+        // Nếu vừa có kết nối trở lại, tự động làm mới dữ liệu
+        fetchCourts();
+      }
+    };
+
+    // Lắng nghe sự kiện online/offline
+    window.addEventListener('online', handleConnectionChange);
+    window.addEventListener('offline', handleConnectionChange);
+
+    // Dọn dẹp event listener khi component unmount
+    return () => {
+      window.removeEventListener('online', handleConnectionChange);
+      window.removeEventListener('offline', handleConnectionChange);
+    };
+  }, []);
+  
+  // Di chuyển hàm fetchCourts ra khỏi useEffect
+  const fetchCourts = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      
+      // Check if user is authenticated
       if (!currentUser) {
+        console.log('Không có thông tin người dùng, hiển thị dữ liệu mẫu');
+        setCourts(SAMPLE_COURTS);
         setLoading(false);
         return;
       }
       
-      try {
-        setLoading(true);
-        console.log('Đang lấy danh sách sân của người dùng với UID:', currentUser.uid);
-        
-        // Create query for courts owned by current user
-        const courtsRef = collection(db, 'courts');
-        console.log('Đã tạo reference đến collection courts');
-        
-        // Query với ownerId
-        const q = query(courtsRef, where('ownerId', '==', currentUser.uid));
-        console.log('Đã tạo truy vấn với điều kiện ownerId ==', currentUser.uid);
-        
-        // Execute query
-        console.log('Đang thực hiện truy vấn...');
-        const querySnapshot = await getDocs(q);
-        console.log('Số lượng document tìm thấy:', querySnapshot.size);
-        
-        const courtsList = [];
-        
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          console.log('Sân:', doc.id, data.name || 'Không có tên');
-          courtsList.push({
-            id: doc.id,
-            ...data,
-            // Đảm bảo có các trường cần thiết
-            name: data.name || 'Chưa có tên',
-            address: data.address || 'Chưa có địa chỉ',
-            description: data.description || '',
-            sport: data.sport || 'football',
-            sportName: SPORT_NAMES[data.sport] || 'Khác',
-            price: data.price || 0,
-            openTime: data.openTime || '06:00',
-            closeTime: data.closeTime || '22:00',
-            facilities: Array.isArray(data.facilities) ? data.facilities : [],
-            isAvailable: data.status === 'active',
-            status: data.status || 'active',
-            image: data.image || 'https://images.unsplash.com/photo-1459865264687-595d652de67e?q=80&w=800&auto=format&fit=crop',
-            // Trường thống kê mặc định
-            totalBookings: data.totalBookings || 0,
-            totalRevenue: data.totalRevenue || 0,
-            rating: data.rating || 0
-          });
+      console.log('Đang lấy danh sách sân của người dùng với UID:', currentUser.uid);
+      
+      // Create query for courts owned by current user
+      const courtsRef = collection(db, 'courts');
+      console.log('Đã tạo reference đến collection courts');
+      
+      // Query với ownerId
+      const q = query(courtsRef, where('ownerId', '==', currentUser.uid));
+      console.log('Đã tạo truy vấn với điều kiện ownerId ==', currentUser.uid);
+      
+      // Execute query
+      console.log('Đang thực hiện truy vấn...');
+      const querySnapshot = await getDocs(q);
+      console.log('Số lượng document tìm thấy:', querySnapshot.size);
+      
+      // Log thông tin chi tiết từng sân tìm thấy để debug
+      querySnapshot.forEach(doc => {
+        const data = doc.data();
+        console.log(`Debug - Sân tìm thấy:`, {
+          id: doc.id,
+          name: data.name || 'Không có tên', 
+          ownerId: data.ownerId,
+          image: data.image || 'Không có ảnh'
         });
-        
-        console.log('Tổng số sân sau khi xử lý:', courtsList.length);
-        setCourts(courtsList);
-        
-        // Nếu không có sân nào, kiểm tra xem có sân nào trong database không
-        if (courtsList.length === 0) {
-          console.log('Không tìm thấy sân nào cho owner này, kiểm tra tất cả sân...');
-          
-          try {
-            const allCourtsSnapshot = await getDocs(collection(db, 'courts'));
-            console.log('Tổng số sân trong database:', allCourtsSnapshot.size);
-            
-            if (allCourtsSnapshot.size > 0) {
-              console.log('Danh sách tất cả sân trong database:');
-              allCourtsSnapshot.forEach(doc => {
-                const data = doc.data();
-                console.log(`- ${doc.id}: ${data.name} (ownerId: ${data.ownerId})`);
-              });
-            }
-          } catch (err) {
-            console.error('Lỗi khi kiểm tra tất cả sân:', err);
-          }
-        }
-      } catch (err) {
-        console.error('Lỗi khi lấy danh sách sân:', err);
-        console.error('Chi tiết lỗi:', err.code, err.message);
-        setError('Không thể tải danh sách sân. Vui lòng thử lại sau.');
-        
-        // Sử dụng dữ liệu mẫu nếu có lỗi
-        console.log('Sử dụng dữ liệu mẫu do lỗi');
-        setCourts(SAMPLE_COURTS);
-      } finally {
+      });
+      
+      if (querySnapshot.empty) {
+        console.log('Không tìm thấy sân nào của người dùng:', currentUser.uid);
+        setError('Bạn chưa có sân nào. Hãy thêm sân mới!');
+        setCourts([]);
         setLoading(false);
+        return;
       }
-    };
-    
+      
+      const courtsList = [];
+      
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        console.log('Sân:', doc.id, data.name || 'Không có tên');
+        console.log('URL hình ảnh:', data.image);
+        courtsList.push({
+          id: doc.id,
+          ...data,
+          // Đảm bảo có các trường cần thiết
+          name: data.name || 'Chưa có tên',
+          address: data.address || 'Chưa có địa chỉ',
+          description: data.description || '',
+          sport: data.sport || 'football',
+          sportName: SPORT_NAMES[data.sport] || 'Khác',
+          price: data.price || 0,
+          openTime: data.openTime || '06:00',
+          closeTime: data.closeTime || '22:00',
+          facilities: Array.isArray(data.facilities) ? data.facilities : [],
+          isAvailable: data.status === 'active',
+          status: data.status || 'active',
+          image: data.image || 'https://images.unsplash.com/photo-1459865264687-595d652de67e?q=80&w=800&auto=format&fit=crop',
+          // Trường thống kê mặc định
+          totalBookings: data.totalBookings || 0,
+          totalRevenue: data.totalRevenue || 0,
+          rating: data.rating || 0
+        });
+      });
+      
+      console.log('Tổng số sân sau khi xử lý:', courtsList.length);
+      
+      if (courtsList.length > 0) {
+        setCourts(courtsList);
+        setError(''); // Xóa thông báo lỗi nếu có
+      } else {
+        setError('Không tìm thấy sân nào. Vui lòng thêm sân mới!');
+        setCourts([]);
+      }
+      
+    } catch (err) {
+      console.error('Lỗi khi lấy danh sách sân:', err);
+      console.error('Chi tiết lỗi:', err.code, err.message);
+      setError('Không thể tải danh sách sân. Vui lòng thử lại sau.');
+      // Không sử dụng dữ liệu mẫu khi có lỗi thực sự
+      setCourts([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Fetch courts from Firestore
+  useEffect(() => {
     fetchCourts();
-  }, [currentUser]);
+
+    // Thêm route làm dependency để refresh khi quay lại trang
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, window.location.pathname]);
   
   // Xử lý mở menu
   const handleMenuClick = (event, court) => {
@@ -393,26 +435,37 @@ const MyCourts = () => {
       .replace('₫', 'VNĐ');
   };
   
+  // Thêm hàm refresh danh sách sân
+  const handleRefreshCourts = async () => {
+    setRefreshing(true);
+    await fetchCourts();
+    setRefreshing(false);
+  };
+  
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
           Sân của tôi
         </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => navigate('/owner/courts/add')}
-        >
-          Thêm sân mới
-        </Button>
+        <Box sx={{ display: 'flex', gap: 2 }}>
+          <Button
+            variant="outlined"
+            startIcon={refreshing ? <CircularProgress size={20} /> : <RefreshIcon />}
+            onClick={handleRefreshCourts}
+            disabled={refreshing || loading}
+          >
+            {refreshing ? 'Đang làm mới...' : 'Làm mới'}
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => navigate('/owner/courts/add')}
+          >
+            Thêm sân mới
+          </Button>
+        </Box>
       </Box>
-      
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
       
       <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
         <Grid container spacing={2} alignItems="center">
@@ -502,14 +555,18 @@ const MyCourts = () => {
               : 'Bạn chưa có sân nào. Hãy thêm sân mới!'}
           </Typography>
           {!(searchTerm || filterSport !== 'all' || filterStatus !== 'all') && (
-            <Button 
-              variant="contained" 
-              startIcon={<AddIcon />} 
-              onClick={() => navigate('/owner/courts/add')}
-              sx={{ mt: 2 }}
-            >
-              Thêm sân mới
-            </Button>
+            <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+              <Button 
+                variant="contained" 
+                startIcon={<AddIcon />} 
+                onClick={() => navigate('/owner/courts/add')}
+              >
+                Thêm sân mới
+              </Button>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                Thêm sân để người dùng có thể tìm kiếm và đặt sân của bạn.
+              </Typography>
+            </Box>
           )}
         </Box>
       ) : (
@@ -520,8 +577,17 @@ const MyCourts = () => {
                 <CardMedia
                   component="img"
                   height="180"
-                  image={court.image || court.images?.[0]}
+                  image={court.image}
                   alt={court.name}
+                  sx={{ 
+                    objectFit: 'cover',
+                    bgcolor: 'grey.200'
+                  }}
+                  onError={(e) => {
+                    console.error(`Lỗi hiển thị ảnh (${court.id}): ${court.image}`);
+                    e.target.onerror = null; // Prevent infinite loop
+                    e.target.src = 'https://images.unsplash.com/photo-1459865264687-595d652de67e?q=80&w=800&auto=format&fit=crop';
+                  }}
                 />
                 <CardContent sx={{ flexGrow: 1 }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -661,6 +727,13 @@ const MyCourts = () => {
           </Button>
         </DialogActions>
       </Dialog>
+      
+      {/* Thêm phần hiển thị time để debug khi nào refresh lần cuối */}
+      <Box sx={{ mt: 2, textAlign: 'center', color: 'text.secondary' }}>
+        <Typography variant="caption">
+          Cập nhật lúc: {new Date().toLocaleTimeString()}
+        </Typography>
+      </Box>
     </Box>
   );
 };
