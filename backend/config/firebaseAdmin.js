@@ -1,6 +1,6 @@
 const admin = require('firebase-admin');
 const serviceAccount = require('./serviceAccountKey.json');
-const config = require('./firebaseConfig');
+const config = require('./firebaseConfig.example');
 
 // Khởi tạo ứng dụng Firebase Admin nếu chưa được khởi tạo
 function initializeFirebaseAdmin() {
