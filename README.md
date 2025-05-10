@@ -1,86 +1,133 @@
-# Sports Facility Booking System / Hệ Thống Đặt Sân Thể Thao
+# Ứng dụng Đặt Sân Thể Thao
 
-## Project Description / Mô Tả Dự Án
-A web application for managing sports facility bookings, allowing users to view available courts, make reservations, and administrators to manage facilities and bookings.
+Ứng dụng web giúp đặt và quản lý sân thể thao với 3 vai trò người dùng: Admin, Chủ sân và Người thuê sân.
 
-Ứng dụng web quản lý đặt sân thể thao, cho phép người dùng xem các sân có sẵn, đặt chỗ và quản trị viên quản lý cơ sở vật chất và đặt chỗ.
+## Cấu trúc dự án
 
-## Features / Tính Năng
-- User authentication / Xác thực người dùng
-- Court listing and details / Danh sách và chi tiết sân
-- Booking management / Quản lý đặt chỗ
-- Admin dashboard / Bảng điều khiển quản trị
-- Payment integration / Tích hợp thanh toán
+Dự án được chia thành 2 phần chính:
+- **Frontend**: Sử dụng React với Material UI
+- **Backend**: Sử dụng Express.js với Firebase Firestore
 
-## Tech Stack / Công Nghệ Sử Dụng
-- Frontend: React.js, Material-UI
-- Backend: Node.js, Express.js
-- Database: Firebase Firestore
-- Authentication: Firebase Authentication
+## Yêu cầu hệ thống
 
-## Security Notice / Lưu Ý Bảo Mật
-**IMPORTANT / QUAN TRỌNG**: 
-- Never commit files containing API keys, secrets, or sensitive information to Git.
-- Không bao giờ commit các file chứa API keys, secrets, hoặc thông tin nhạy cảm lên Git.
-- The `firebase.config.js` file is added to `.gitignore` to prevent accidental commits.
-- File `firebase.config.js` đã được thêm vào `.gitignore` để ngăn chặn việc vô tình commit.
+- Node.js (v18.x trở lên)
+- npm hoặc yarn
+- Tài khoản Firebase và Firestore
 
-## Getting Started / Bắt Đầu
-1. Clone the repository / Clone kho lưu trữ
-2. Install dependencies / Cài đặt các phụ thuộc
-3. Set up Firebase configuration files / Thiết lập các file cấu hình Firebase
-4. Run the application / Chạy ứng dụng
+## Cài đặt
 
-## Installation / Cài Đặt
+### 1. Clone dự án
+
 ```bash
-# Install frontend dependencies / Cài đặt phụ thuộc frontend
-cd frontend
-npm install
+git clone <repository-url>
+cd SE104
+```
 
-# Install backend dependencies / Cài đặt phụ thuộc backend
+### 2. Cấu hình Firebase
+
+1. Tạo dự án Firebase mới tại [Firebase Console](https://console.firebase.google.com/)
+2. Kích hoạt các dịch vụ Authentication và Firestore
+3. Tạo Web App trong Firebase Project và lấy thông tin cấu hình
+4. Tạo file service account key:
+   - Vào Project Settings > Service accounts > Generate new private key
+   - Tải về file JSON và đổi tên thành `serviceAccountKey.json`
+
+5. Tạo các file cấu hình Firebase:
+
+   **Tạo file `frontend/src/firebase.config.js`:**
+   ```javascript
+   export const firebaseConfig = {
+     apiKey: "YOUR_API_KEY",
+     authDomain: "YOUR_AUTH_DOMAIN",
+     projectId: "YOUR_PROJECT_ID",
+     storageBucket: "YOUR_STORAGE_BUCKET",
+     messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+     appId: "YOUR_APP_ID"
+   };
+   ```
+
+   **Tạo file `backend/config/firebase.config.js`:**
+   ```javascript
+   const firebaseConfig = {
+     apiKey: "YOUR_API_KEY",
+     authDomain: "YOUR_AUTH_DOMAIN",
+     projectId: "YOUR_PROJECT_ID",
+     storageBucket: "YOUR_STORAGE_BUCKET",
+     messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
+     appId: "YOUR_APP_ID"
+   };
+
+   module.exports = firebaseConfig;
+   ```
+
+   **Đặt file `serviceAccountKey.json` vào thư mục `backend/config/`**
+
+### 3. Cài đặt dependencies
+
+**Backend:**
+```bash
 cd backend
 npm install
 ```
 
-## Firebase Setup / Thiết Lập Firebase
-1. Create a Firebase project at https://console.firebase.google.com/
-2. Enable Authentication, Firestore, and Storage services
-3. Get your Firebase configuration from Project Settings > General
-4. For frontend:
-   - Copy `frontend/src/firebase.config.example.js` to `frontend/src/firebase.config.js`
-   - Update the configuration in `firebase.config.js` with your Firebase details
-5. For backend:
-   - Generate a service account key from Project Settings > Service accounts
-   - Save the key file securely and reference it in your backend setup
-
-## Running the Application / Chạy Ứng Dụng
+**Frontend:**
 ```bash
-# Start frontend / Khởi động frontend
 cd frontend
-npm start
+npm install
+```
 
-# Start backend / Khởi động backend
+## Chạy ứng dụng
+
+### Chế độ development
+
+**Backend:**
+```bash
 cd backend
 npm run dev
 ```
 
-## Tạo tài khoản Admin
+**Frontend:**
+```bash
+cd frontend
+npm start
+```
 
-Để tạo tài khoản admin với email "admin@example.com" và mật khẩu "admin123", thực hiện các bước sau:
+Sau khi khởi động, frontend sẽ chạy tại `http://localhost:3000` và backend sẽ chạy tại `http://localhost:5000`.
+
+### Tạo tài khoản admin
+
+Để tạo tài khoản admin đầu tiên, chạy script sau:
 
 ```bash
-# Cài đặt thư viện nếu cần
-npm install firebase
-
-# Chạy script tạo admin
+cd backend
 npm run setup-admin
 ```
 
-Sau khi chạy script, bạn có thể đăng nhập vào hệ thống với:
-- Email: admin@example.com
-- Mật khẩu: admin123
+Nhập email và mật khẩu khi được nhắc.
 
-Tài khoản này đã được thiết lập với quyền admin và có thể truy cập vào Admin Dashboard để quản lý hệ thống.
+## Tính năng chính
+
+### Người dùng
+
+1. **Admin**
+   - Quản lý tất cả người dùng
+   - Xem thống kê toàn hệ thống
+   - Phê duyệt sân thể thao mới
+
+2. **Chủ sân**
+   - Thêm/sửa/xóa sân thể thao
+   - Quản lý lịch đặt sân
+   - Xem thống kê doanh thu
+
+3. **Người thuê sân**
+   - Tìm kiếm sân phù hợp
+   - Đặt sân theo khung giờ
+   - Quản lý lịch đặt cá nhân
+   - Đánh giá sân sau khi sử dụng
+
+## Thông tin liên hệ
+
+Nếu bạn có bất kỳ câu hỏi hoặc đề xuất nào, vui lòng liên hệ [email@example.com].
 
 # SE104
 Link drive BaoCaoDeTai_SEP.28: https://drive.google.com/drive/u/0/folders/1tdr2ePP3CE-g_i_Sredy3rrfdLBmQTZY
