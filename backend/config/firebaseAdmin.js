@@ -1,25 +1,26 @@
 const admin = require('firebase-admin');
 const serviceAccount = require('./serviceAccountKey.json');
-const config = require('./firebaseConfig');
 
-// Khởi tạo ứng dụng Firebase Admin nếu chưa được khởi tạo
-function initializeFirebaseAdmin() {
-  if (!admin.apps.length) {
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-      databaseURL: `https://${config.projectId}.firebaseio.com`,
-      storageBucket: config.storageBucket
-    });
-    console.log('Firebase Admin SDK đã được khởi tạo thành công');
-  }
-  return admin;
+// Khởi tạo Firebase Admin
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+    storageBucket: process.env.FIREBASE_STORAGE_BUCKET || serviceAccount.project_id + '.appspot.com'
+  });
 }
 
-const firebaseAdmin = initializeFirebaseAdmin();
+// Tạo tham chiếu đến Firestore và Storage
+const db = admin.firestore();
+const storage = admin.storage();
 
+// Hàm lấy collection từ Firestore
+const getCollection = (collectionName) => {
+  return db.collection(collectionName);
+};
+
+// Export các tham chiếu để sử dụng ở nơi khác
 module.exports = {
-  admin: firebaseAdmin,
-  firestore: firebaseAdmin.firestore(),
-  auth: firebaseAdmin.auth(),
-  storage: firebaseAdmin.storage()
+  admin,
+  db,
+  getCollection
 }; 
