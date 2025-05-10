@@ -26,17 +26,19 @@ import courtService from '../../services/courtService';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import SportsSoccerIcon from '@mui/icons-material/SportsSoccer';
 import EventNoteIcon from '@mui/icons-material/EventNote';
-import PaidIcon from '@mui/icons-material/Paid';
+import AssessmentIcon from '@mui/icons-material/Assessment';
 import SupportAgentIcon from '@mui/icons-material/SupportAgent';
 
 // Import các component con
 import OwnerHome from './OwnerHome';
 import MyCourts from './MyCourts';
 import CourtBookings from './CourtBookings';
-import Revenue from './Revenue';
-import Support from './Support';
 import AddCourt from './AddCourt';
 import EditCourt from './EditCourt';
+
+// Placeholder components
+const Reports = () => <div>Báo cáo thống kê</div>;
+const Support = () => <div>Hỗ trợ</div>;
 
 const OwnerDashboard = () => {
   const { userDetails } = useAuth();
@@ -191,22 +193,22 @@ const OwnerDashboard = () => {
       icon: <DashboardIcon />
     },
     {
-      label: 'Quản lý sân thể thao',
+      label: 'Quản lý sân',
       path: '/owner/courts',
       icon: <SportsSoccerIcon />
     },
     {
-      label: 'Lịch đặt sân',
+      label: 'Quản lý đặt sân',
       path: '/owner/bookings',
       icon: <EventNoteIcon />
     },
     {
-      label: 'Báo cáo doanh thu',
-      path: '/owner/revenue',
-      icon: <PaidIcon />
+      label: 'Báo cáo thống kê',
+      path: '/owner/reports',
+      icon: <AssessmentIcon />
     },
     {
-      label: 'Phản hồi & Hỗ trợ',
+      label: 'Hỗ trợ',
       path: '/owner/support',
       icon: <SupportAgentIcon />
     }
@@ -220,7 +222,7 @@ const OwnerDashboard = () => {
         <Route path="/courts/add" element={<AddCourt />} />
         <Route path="/courts/edit/:courtId" element={<EditCourt />} />
         <Route path="/bookings" element={<CourtBookings />} />
-        <Route path="/revenue" element={<Revenue />} />
+        <Route path="/reports" element={<Reports />} />
         <Route path="/support" element={<Support />} />
       </Routes>
 

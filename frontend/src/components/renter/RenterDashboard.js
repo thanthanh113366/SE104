@@ -5,20 +5,17 @@ import { useAuth } from '../../contexts/AuthContext';
 
 // Material UI Icons
 import DashboardIcon from '@mui/icons-material/Dashboard';
-import SearchIcon from '@mui/icons-material/Search';
-import BookmarkIcon from '@mui/icons-material/Bookmark';
+import SportsSoccerIcon from '@mui/icons-material/SportsSoccer';
 import EventNoteIcon from '@mui/icons-material/EventNote';
-import StarIcon from '@mui/icons-material/Star';
+import SupportAgentIcon from '@mui/icons-material/SupportAgent';
 
-// Import components
-import SearchCourts from './SearchCourts';
-import CourtDetail from './CourtDetail';
-import MyBookings from './MyBookings';
+// Import các component con
 import RenterHome from './RenterHome';
+import MyBookings from './MyBookings';
+import SearchCourts from './SearchCourts';
 
-// Placeholder components (sẽ triển khai sau)
-const FavoriteCourts = () => <div>Sân yêu thích</div>;
-const RateBookings = () => <div>Đánh giá sân</div>;
+// Placeholder components
+const Support = () => <div>Hỗ trợ</div>;
 
 const RenterDashboard = () => {
   const { userDetails } = useAuth();
@@ -30,24 +27,19 @@ const RenterDashboard = () => {
       icon: <DashboardIcon />
     },
     {
-      label: 'Tìm kiếm sân',
-      path: '/renter/search',
-      icon: <SearchIcon />
+      label: 'Tìm sân',
+      path: '/renter/find-courts',
+      icon: <SportsSoccerIcon />
     },
     {
-      label: 'Lịch đặt sân',
+      label: 'Lịch đặt của tôi',
       path: '/renter/bookings',
       icon: <EventNoteIcon />
     },
     {
-      label: 'Sân yêu thích',
-      path: '/renter/favorites',
-      icon: <BookmarkIcon />
-    },
-    {
-      label: 'Đánh giá sân',
-      path: '/renter/ratings',
-      icon: <StarIcon />
+      label: 'Hỗ trợ',
+      path: '/renter/support',
+      icon: <SupportAgentIcon />
     }
   ];
   
@@ -55,11 +47,9 @@ const RenterDashboard = () => {
     <MainLayout title={`Chào mừng, ${userDetails?.displayName || 'Người thuê sân'}`} menuItems={menuItems}>
       <Routes>
         <Route path="/" element={<RenterHome />} />
-        <Route path="/search" element={<SearchCourts />} />
-        <Route path="/court/:courtId" element={<CourtDetail />} />
+        <Route path="/find-courts" element={<SearchCourts />} />
         <Route path="/bookings" element={<MyBookings />} />
-        <Route path="/favorites" element={<FavoriteCourts />} />
-        <Route path="/ratings" element={<RateBookings />} />
+        <Route path="/support" element={<Support />} />
       </Routes>
     </MainLayout>
   );
