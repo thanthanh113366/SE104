@@ -35,7 +35,7 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import PaidIcon from '@mui/icons-material/Paid';
 import StarIcon from '@mui/icons-material/Star';
 import BookOnlineIcon from '@mui/icons-material/BookOnline';
-import { doc, getDoc, collection, addDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, addDoc, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -114,12 +114,45 @@ const CourtDetail = () => {
   const [court, setCourt] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(new Date());
   const [bookingOpen, setBookingOpen] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [note, setNote] = useState('');
   const [bookingLoading, setBookingLoading] = useState(false);
+  const [existingBookings, setExistingBookings] = useState([]);
+  
+  // Helper function để chuyển đổi Firestore timestamp sang Date nếu cần
+  const convertFirestoreDate = (firestoreDate) => {
+    if (!firestoreDate) return null;
+    
+    // Nếu là Firestore Timestamp, chuyển về Date
+    if (typeof firestoreDate.toDate === 'function') {
+      return firestoreDate.toDate();
+    }
+    
+    // Nếu là Date string, chuyển về Date
+    if (typeof firestoreDate === 'string') {
+      return new Date(firestoreDate);
+    }
+    
+    // Nếu đã là Date, trả về nguyên bản
+    return firestoreDate;
+  };
+  
+  // Helper function để kiểm tra xem hai ngày có cùng một ngày không
+  const isSameDay = (date1, date2) => {
+    const d1 = convertFirestoreDate(date1);
+    const d2 = convertFirestoreDate(date2);
+    
+    if (!d1 || !d2) return false;
+    
+    return (
+      d1.getFullYear() === d2.getFullYear() &&
+      d1.getMonth() === d2.getMonth() &&
+      d1.getDate() === d2.getDate()
+    );
+  };
   
   // Fetch court data
   useEffect(() => {
@@ -155,17 +188,6 @@ const CourtDetail = () => {
             reviews: data.reviews || [],
             image: data.image || 'https://images.unsplash.com/photo-1459865264687-595d652de67e?q=80&w=800&auto=format&fit=crop',
             owner: data.owner || { name: 'Chưa có thông tin', phone: 'Chưa có thông tin' },
-            // Tạo sẵn một số slot trong trường hợp không có
-            availableSlots: data.availableSlots || [
-              { 
-                date: new Date().toISOString().split('T')[0], 
-                slots: [
-                  { id: 'slot1', time: '08:00-09:30', status: 'available', price: data.price || 200000 },
-                  { id: 'slot2', time: '10:00-11:30', status: 'available', price: data.price || 200000 },
-                  { id: 'slot3', time: '14:00-15:30', status: 'available', price: data.price || 200000 }
-                ]
-              }
-            ]
           };
           
           setCourt(courtData);
@@ -201,8 +223,133 @@ const CourtDetail = () => {
     fetchCourtDetails();
   }, [courtId]);
   
+  // Lấy danh sách các lượt đặt sân hiện có cho ngày đã chọn
+  useEffect(() => {
+    const fetchExistingBookings = async () => {
+      if (!court || !selectedDate) return;
+      
+      try {
+        // Chuyển selectedDate thành timestamp bắt đầu và kết thúc ngày
+        const startDate = new Date(selectedDate);
+        startDate.setHours(0, 0, 0, 0);
+        
+        const endDate = new Date(selectedDate);
+        endDate.setHours(23, 59, 59, 999);
+        
+        console.log(`Đang lấy danh sách đặt sân cho ngày ${startDate.toLocaleDateString()}`);
+        
+        // Truy vấn Firestore để lấy tất cả booking cho sân này trong ngày đã chọn
+        const bookingsRef = collection(db, 'bookings');
+        
+        // Query theo courtId
+        // Lưu ý: Do vấn đề với queries dựa trên timestamp, chúng ta sẽ lọc lại ngày sau khi lấy dữ liệu
+        const q = query(
+          bookingsRef,
+          where('courtId', '==', court.id)
+        );
+        
+        const querySnapshot = await getDocs(q);
+        const bookings = [];
+        
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          console.log("Booking từ Firestore:", doc.id, data);
+          
+          const bookingDate = convertFirestoreDate(data.date);
+          
+          // Chỉ xử lý các đặt sân cho ngày đã chọn
+          if (isSameDay(bookingDate, selectedDate) && data.status !== 'rejected') {
+            console.log(`Booking ${doc.id} hợp lệ cho ngày ${selectedDate.toLocaleDateString()}`);
+            
+            bookings.push({
+              id: doc.id,
+              ...data,
+              date: bookingDate,
+              startTime: data.startTime,
+              endTime: data.endTime
+            });
+          }
+        });
+        
+        console.log(`Tìm thấy ${bookings.length} lượt đặt sân hợp lệ cho ngày ${startDate.toLocaleDateString()}`);
+        console.log('Danh sách đặt sân hợp lệ:', bookings);
+        
+        setExistingBookings(bookings);
+      } catch (error) {
+        console.error('Lỗi khi lấy danh sách đặt sân:', error);
+      }
+    };
+    
+    fetchExistingBookings();
+  }, [court, selectedDate]);
+  
+  // Tạo các khung giờ từ giờ mở cửa đến giờ đóng cửa
+  const generateTimeSlots = () => {
+    if (!court) return [];
+    
+    const slots = [];
+    const [openHour, openMinute] = court.openTime.split(':').map(Number);
+    const [closeHour, closeMinute] = court.closeTime.split(':').map(Number);
+    
+    const openTime = openHour * 60 + openMinute;
+    const closeTime = closeHour * 60 + closeMinute;
+    
+    console.log("Existing bookings khi tạo time slots:", existingBookings);
+    
+    // Tạo các khung 1 giờ
+    for (let time = openTime; time < closeTime; time += 60) {
+      const hour = Math.floor(time / 60);
+      const minute = time % 60;
+      
+      const nextTime = time + 60;
+      const nextHour = Math.floor(nextTime / 60);
+      const nextMinute = nextTime % 60;
+      
+      if (nextTime <= closeTime) {
+        const startTimeString = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+        const endTimeString = `${nextHour.toString().padStart(2, '0')}:${nextMinute.toString().padStart(2, '0')}`;
+        
+        const timeSlot = {
+          id: `slot-${startTimeString}-${endTimeString}`,
+          startTime: startTimeString,
+          endTime: endTimeString,
+          time: `${startTimeString}-${endTimeString}`,
+          price: court.price,
+          status: 'available',
+          bookingStatus: null
+        };
+        
+        // Kiểm tra xem khung giờ này đã có người đặt chưa và trạng thái của đơn đặt sân
+        const bookingForThisSlot = existingBookings.find(booking => {
+          const matchesTimeSlot = 
+            (booking.startTime <= startTimeString && booking.endTime > startTimeString) || 
+            (booking.startTime < endTimeString && booking.endTime >= endTimeString) ||
+            (booking.startTime >= startTimeString && booking.endTime <= endTimeString);
+          
+          if (matchesTimeSlot) {
+            console.log(`Slot ${startTimeString}-${endTimeString} matches booking:`, booking);
+          }
+          
+          return matchesTimeSlot;
+        });
+        
+        if (bookingForThisSlot) {
+          console.log(`Slot ${startTimeString}-${endTimeString} is booked. Status: ${bookingForThisSlot.status}`);
+          timeSlot.status = 'booked';
+          timeSlot.bookingStatus = bookingForThisSlot.status || 'pending';
+          timeSlot.bookingId = bookingForThisSlot.id;
+        }
+        
+        slots.push(timeSlot);
+      }
+    }
+    
+    console.log("Generated time slots:", slots);
+    return slots;
+  };
+  
   const handleBookingOpen = (slot) => {
-    setSelectedSlot(slot.time);
+    setSelectedSlot(slot);
     setBookingOpen(true);
   };
   
@@ -223,20 +370,18 @@ const CourtDetail = () => {
       setBookingLoading(true);
       
       console.log('Thông tin sân khi đặt:', court);
-      
-      // Tách thời gian bắt đầu và kết thúc từ chuỗi thời gian (VD: "08:00-09:30")
-      const [startTime, endTime] = selectedSlot.split('-');
+      console.log('Slot được chọn:', selectedSlot);
       
       // Lấy thông tin user từ Firestore
       const userRef = doc(db, 'users', currentUser.uid);
       const userSnap = await getDoc(userRef);
-      const userDetails = userSnap.exists() ? userSnap.data() : null;
+      const userData = userSnap.exists() ? userSnap.data() : null;
       
       // Tính tổng tiền
       const price = court.price || 0;
       // Chuyển startTime và endTime thành phút
-      const [startHour, startMinute] = startTime.split(':').map(Number);
-      const [endHour, endMinute] = endTime.split(':').map(Number);
+      const [startHour, startMinute] = selectedSlot.startTime.split(':').map(Number);
+      const [endHour, endMinute] = selectedSlot.endTime.split(':').map(Number);
       
       const startTotalMinutes = startHour * 60 + startMinute;
       const endTotalMinutes = endHour * 60 + endMinute;
@@ -244,19 +389,22 @@ const CourtDetail = () => {
       const durationHours = (endTotalMinutes - startTotalMinutes) / 60;
       const totalPrice = price * durationHours;
       
+      // Định dạng ngày
+      const bookingDate = new Date(selectedDate);
+      
       // Tạo dữ liệu đặt sân
       const bookingData = {
         courtId: court.id,
         courtName: court.name,
         ownerId: court.ownerId,
         userId: currentUser.uid,
-        customerName: userDetails?.displayName || currentUser.displayName || 'Khách hàng',
-        customerPhone: userDetails?.phoneNumber || '',
-        customerEmail: userDetails?.email || currentUser.email || '',
-        date: new Date(selectedDate),
-        startTime: startTime,
-        endTime: endTime,
-        time: selectedSlot,
+        customerName: userData?.displayName || currentUser.displayName || 'Khách hàng',
+        customerPhone: userData?.phoneNumber || '',
+        customerEmail: userData?.email || currentUser.email || '',
+        date: bookingDate,
+        startTime: selectedSlot.startTime,
+        endTime: selectedSlot.endTime,
+        time: selectedSlot.time,
         duration: durationHours,
         totalPrice: totalPrice,
         sport: court.sport || 'Không xác định',
@@ -281,11 +429,20 @@ const CourtDetail = () => {
       // Hiển thị thông báo thành công
       alert('Đặt sân thành công! Chủ sân sẽ xác nhận đặt sân của bạn sớm.');
       
-      // Đóng dialog
+      // Đóng dialog và cập nhật lại danh sách đặt sân
       setBookingOpen(false);
       setSelectedSlot(null);
       setNote('');
       setPaymentMethod('cash');
+      
+      // Thêm booking mới vào danh sách đặt sân hiện tại
+      setExistingBookings(prevBookings => [
+        ...prevBookings,
+        {
+          id: newBookingRef.id,
+          ...bookingData
+        }
+      ]);
       
     } catch (error) {
       console.error('Lỗi khi đặt sân:', error);
@@ -328,8 +485,8 @@ const CourtDetail = () => {
   
   if (!court) return null;
   
-  // Get available slots for selected date
-  const todaySlots = court.availableSlots.find(s => s.date === selectedDate)?.slots || [];
+  // Tạo các khung giờ
+  const timeSlots = generateTimeSlots();
   
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
@@ -397,7 +554,7 @@ const CourtDetail = () => {
             </Typography>
             
             <Typography variant="h6" gutterBottom>Tiện ích</Typography>
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap={true} sx={{ mb: 2 }}>
               {court.facilities.map((facility, index) => (
                 <Chip key={index} label={facility} sx={{ m: 0.5 }} />
               ))}
@@ -415,52 +572,95 @@ const CourtDetail = () => {
           <Paper sx={{ p: 3, borderRadius: 2, position: 'sticky', top: 20 }}>
             <Typography variant="h5" gutterBottom>Đặt sân</Typography>
             
-            <TextField
-              fullWidth
-              type="date"
-              value={selectedDate}
-              onChange={(e) => setSelectedDate(e.target.value)}
-              sx={{ mb: 3 }}
-            />
+            {/* Chọn ngày đơn giản */}
+            <Box sx={{ mb: 3 }}>
+              <TextField
+                fullWidth
+                type="date"
+                label="Chọn ngày"
+                InputLabelProps={{ shrink: true }}
+                value={selectedDate.toISOString().split('T')[0]}
+                onChange={(e) => {
+                  const newDate = new Date(e.target.value);
+                  setSelectedDate(newDate);
+                }}
+              />
+            </Box>
             
             <Typography variant="h6" gutterBottom>
-              Lịch trống ngày {new Date(selectedDate).toLocaleDateString('vi-VN')}
+              Lịch trống ngày {selectedDate.toLocaleDateString('vi-VN')}
             </Typography>
             
-            {todaySlots.length > 0 ? (
-              <TableContainer>
-                <Table>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Thời gian</TableCell>
-                      <TableCell align="right">Giá</TableCell>
-                      <TableCell align="right">Trạng thái</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {todaySlots.map((slot) => (
-                      <TableRow key={slot.id}>
-                        <TableCell>{slot.time}</TableCell>
-                        <TableCell align="right">{formatPrice(slot.price)}</TableCell>
-                        <TableCell align="right">
-                          {slot.status === 'available' ? (
-                            <Button
-                              variant="contained"
-                              size="small"
-                              startIcon={<BookOnlineIcon />}
-                              onClick={() => handleBookingOpen(slot)}
-                            >
-                              Đặt ngay
-                            </Button>
-                          ) : (
-                            <Chip label="Đã đặt" color="error" size="small" />
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+            {timeSlots.length > 0 ? (
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                {timeSlots.map((slot) => {
+                  // Xác định màu sắc và trạng thái hiển thị
+                  let statusColor, statusBgColor, statusText;
+                  
+                  if (slot.status === 'booked') {
+                    if (slot.bookingStatus === 'confirmed') {
+                      statusColor = '#d32f2f';
+                      statusBgColor = '#ffebee';
+                      statusText = 'Đã được đặt';
+                    } else if (slot.bookingStatus === 'pending') {
+                      statusColor = '#ff9800';
+                      statusBgColor = '#fff3e0';
+                      statusText = 'Đang chờ xác nhận';
+                    } else {
+                      statusColor = '#f44336';
+                      statusBgColor = '#ffebee';
+                      statusText = 'Đã đặt';
+                    }
+                  } else {
+                    statusColor = '#4caf50';
+                    statusBgColor = '#e8f5e9';
+                    statusText = 'Còn trống';
+                  }
+                  
+                  console.log(`Rendering slot ${slot.time} with status: ${slot.status}, bookingStatus: ${slot.bookingStatus}`);
+                  
+                  return (
+                    <Box
+                      key={slot.id}
+                      sx={{
+                        width: 'calc(50% - 8px)',
+                        padding: 1,
+                        textAlign: 'center',
+                        border: '1px solid',
+                        borderColor: statusColor,
+                        backgroundColor: statusBgColor,
+                        borderRadius: 1,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        cursor: slot.status === 'booked' ? 'default' : 'pointer',
+                        '&:hover': {
+                          backgroundColor: slot.status === 'booked' ? statusBgColor : '#f5f5f5',
+                        },
+                        mb: 1
+                      }}
+                      onClick={() => slot.status === 'available' && handleBookingOpen(slot)}
+                    >
+                      <Typography variant="body2">{slot.time}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {formatPrice(slot.price)}
+                      </Typography>
+                      <Box 
+                        sx={{ 
+                          mt: 0.5, 
+                          py: 0.25, 
+                          px: 1, 
+                          borderRadius: 1, 
+                          fontSize: '0.7rem',
+                          backgroundColor: statusColor,
+                          color: 'white'
+                        }}
+                      >
+                        {statusText}
+                      </Box>
+                    </Box>
+                  );
+                })}
+              </Box>
             ) : (
               <Alert severity="info">
                 Không có khung giờ trống cho ngày đã chọn
@@ -527,10 +727,10 @@ const CourtDetail = () => {
               <strong>Sân:</strong> {court.name}
             </Typography>
             <Typography variant="body1" gutterBottom>
-              <strong>Ngày:</strong> {new Date(selectedDate).toLocaleDateString('vi-VN')}
+              <strong>Ngày:</strong> {selectedDate.toLocaleDateString('vi-VN')}
             </Typography>
             <Typography variant="body1" gutterBottom>
-              <strong>Giờ:</strong> {selectedSlot}
+              <strong>Giờ:</strong> {selectedSlot?.time}
             </Typography>
             <Typography variant="body1" gutterBottom>
               <strong>Giá:</strong> {selectedSlot ? formatPrice(selectedSlot.price) : ''}
@@ -565,7 +765,7 @@ const CourtDetail = () => {
         <DialogActions>
           <Button onClick={handleBookingClose}>Hủy</Button>
           <Button variant="contained" onClick={handleBooking} disabled={bookingLoading}>
-            Xác nhận đặt sân
+            {bookingLoading ? 'Đang xử lý...' : 'Xác nhận đặt sân'}
           </Button>
         </DialogActions>
       </Dialog>
