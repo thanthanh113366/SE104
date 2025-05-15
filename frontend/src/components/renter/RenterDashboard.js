@@ -13,6 +13,7 @@ import SupportAgentIcon from '@mui/icons-material/SupportAgent';
 import RenterHome from './RenterHome';
 import MyBookings from './MyBookings';
 import SearchCourts from './SearchCourts';
+import CourtDetail from './CourtDetail';
 
 // Placeholder components
 const Support = () => <div>Hỗ trợ</div>;
@@ -50,6 +51,7 @@ const RenterDashboard = () => {
         <Route path="/find-courts" element={<SearchCourts />} />
         <Route path="/bookings" element={<MyBookings />} />
         <Route path="/support" element={<Support />} />
+        <Route path="/court/:courtId" element={<CourtDetail />} />
       </Routes>
     </MainLayout>
   );

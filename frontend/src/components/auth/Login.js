@@ -10,7 +10,14 @@ import {
   IconButton,
   InputAdornment,
   Alert,
-  Link as MuiLink
+  Link as MuiLink,
+  Checkbox,
+  FormControlLabel,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle
 } from '@mui/material';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -24,8 +31,12 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+  const [openResetDialog, setOpenResetDialog] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
+  const [resetError, setResetError] = useState('');
   
-  const { login, loginWithGoogle, currentUser, userDetails } = useAuth();
+  const { login, loginWithGoogle, currentUser, userDetails, resetPassword } = useAuth();
   const navigate = useNavigate();
   
   const handleSubmit = async (e) => {
@@ -38,9 +49,27 @@ const Login = () => {
     try {
       setError('');
       setLoading(true);
-      await login(email, password);
+      
+      // Thêm timeout để ngăn chặn tình trạng treo trang
+      const loginPromise = login(email, password, rememberMe);
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Thao tác hết thời gian. Vui lòng thử lại sau.")), 10000);
+      });
+      
+      await Promise.race([loginPromise, timeoutPromise]);
     } catch (error) {
-      setError('Đăng nhập thất bại: ' + error.message);
+      console.error("Login error:", error);
+      
+      // Xử lý các lỗi phổ biến từ Firebase Auth
+      if (error.code === 'auth/too-many-requests') {
+        setError('Tài khoản tạm khóa 30 phút do nhập sai mật khẩu quá nhiều lần. Vui lòng thử lại sau hoặc sử dụng tính năng "Quên mật khẩu".');
+      } else if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
+        setError('Sai thông tin đăng nhập!');
+      } else if (error.code === 'auth/user-disabled') {
+        setError('Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị viên.');
+      } else {
+        setError(error.message || "Đã xảy ra lỗi khi đăng nhập");
+      }
     } finally {
       setLoading(false);
     }
@@ -50,12 +79,72 @@ const Login = () => {
     try {
       setError('');
       setLoading(true);
-      await loginWithGoogle();
+      
+      // Thêm timeout để ngăn chặn tình trạng treo trang
+      const googleLoginPromise = loginWithGoogle(rememberMe);
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Thao tác hết thời gian. Vui lòng thử lại sau.")), 10000);
+      });
+      
+      await Promise.race([googleLoginPromise, timeoutPromise]);
     } catch (error) {
-      setError('Đăng nhập với Google thất bại: ' + error.message);
+      console.error("Google login error:", error);
+      
+      // Xử lý các lỗi phổ biến từ Firebase Auth
+      if (error.code === 'auth/too-many-requests') {
+        setError('Tài khoản tạm khóa 30 phút do đăng nhập quá nhiều lần. Vui lòng thử lại sau.');
+      } else if (error.code === 'auth/user-disabled') {
+        setError('Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị viên.');
+      } else if (error.code === 'auth/popup-closed-by-user') {
+        setError('Bạn đã đóng cửa sổ đăng nhập Google. Vui lòng thử lại.');
+      } else {
+        setError(error.message || "Đã xảy ra lỗi khi đăng nhập với Google");
+      }
     } finally {
       setLoading(false);
     }
+  };
+  
+  const handleOpenResetDialog = () => {
+    if (!email) {
+      setError('Vui lòng nhập email trước khi sử dụng tính năng quên mật khẩu');
+      return;
+    }
+    setResetError('');
+    setResetSuccess(false);
+    setOpenResetDialog(true);
+  };
+  
+  const handleResetPassword = async () => {
+    try {
+      setResetError('');
+      setLoading(true);
+      
+      // Thêm timeout để ngăn chặn tình trạng treo trang
+      const resetPromise = resetPassword(email);
+      const timeoutPromise = new Promise((resolve, reject) => {
+        setTimeout(() => resolve("timeout"), 10000); // 10 giây timeout
+      });
+      
+      // Sử dụng Promise.race để ngăn chặn tình trạng treo vô hạn
+      const result = await Promise.race([resetPromise, timeoutPromise]);
+      
+      if (result === "timeout") {
+        setResetError("Quá thời gian chờ. Vui lòng thử lại sau.");
+      } else {
+        setResetSuccess(true);
+      }
+    } catch (error) {
+      setResetError(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const handleCloseResetDialog = () => {
+    setOpenResetDialog(false);
+    setResetError('');
+    setResetSuccess(false);
   };
   
   useEffect(() => {
@@ -142,8 +231,31 @@ const Login = () => {
                   </InputAdornment>
                 ),
               }}
-              sx={{ mb: 3 }}
+              sx={{ mb: 2 }}
             />
+            
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <FormControlLabel
+                control={
+                  <Checkbox 
+                    checked={rememberMe} 
+                    onChange={(e) => setRememberMe(e.target.checked)} 
+                    color="primary"
+                  />
+                }
+                label="Ghi nhớ đăng nhập"
+              />
+              
+              <MuiLink 
+                component="button" 
+                type="button"
+                variant="body2" 
+                onClick={handleOpenResetDialog}
+                sx={{ textAlign: 'right' }}
+              >
+                Quên mật khẩu?
+              </MuiLink>
+            </Box>
             
             <Button
               type="submit"
@@ -193,6 +305,37 @@ const Login = () => {
           </Box>
         </Box>
       </Paper>
+      
+      {/* Dialog Quên mật khẩu */}
+      <Dialog open={openResetDialog} onClose={handleCloseResetDialog}>
+        <DialogTitle>Quên mật khẩu</DialogTitle>
+        <DialogContent>
+          {resetSuccess ? (
+            <Alert severity="success" sx={{ mt: 2 }}>
+              Hướng dẫn đặt lại mật khẩu đã được gửi đến email: {email}. Vui lòng kiểm tra hộp thư.
+            </Alert>
+          ) : (
+            <>
+              <DialogContentText>
+                Chúng tôi sẽ gửi hướng dẫn đặt lại mật khẩu đến email: <strong>{email}</strong>
+              </DialogContentText>
+              {resetError && <Alert severity="error" sx={{ mt: 2 }}>{resetError}</Alert>}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          {resetSuccess ? (
+            <Button onClick={handleCloseResetDialog}>Đóng</Button>
+          ) : (
+            <>
+              <Button onClick={handleCloseResetDialog}>Hủy</Button>
+              <Button onClick={handleResetPassword} disabled={loading}>
+                {loading ? 'Đang xử lý...' : 'Gửi'}
+              </Button>
+            </>
+          )}
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 };

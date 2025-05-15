@@ -105,7 +105,7 @@ const RenterHome = () => {
           <Button 
             variant="contained" 
             startIcon={<SearchIcon />}
-            onClick={() => navigate('/renter/search')}
+            onClick={() => navigate('/renter/find-courts')}
             sx={{ width: 'fit-content' }}
           >
             Tìm sân ngay
@@ -124,7 +124,7 @@ const RenterHome = () => {
               transition: 'transform 0.3s',
               '&:hover': { transform: 'translateY(-5px)' }
             }}
-            onClick={() => navigate('/renter/search')}
+            onClick={() => navigate('/renter/find-courts')}
           >
             <CardContent sx={{ textAlign: 'center', p: 3 }}>
               <SearchIcon sx={{ fontSize: 48, color: 'primary.main', mb: 1 }} />
@@ -207,9 +207,9 @@ const RenterHome = () => {
               {popularSports.map((sport, index) => (
                 <ListItem 
                   key={index}
-                  button
-                  onClick={() => navigate('/renter/search')}
-                  sx={{ borderRadius: 1 }}
+                  component="div"
+                  onClick={() => navigate('/renter/find-courts')}
+                  sx={{ borderRadius: 1, cursor: 'pointer' }}
                 >
                   <ListItemIcon>
                     {sport.icon}

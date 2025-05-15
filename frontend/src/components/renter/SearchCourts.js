@@ -26,6 +26,8 @@ import SearchIcon from '@mui/icons-material/Search';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
 import SportsIcon from '@mui/icons-material/Sports';
 import StarIcon from '@mui/icons-material/Star';
+import MyLocationIcon from '@mui/icons-material/MyLocation';
+import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import { useNavigate } from 'react-router-dom';
 import { collection, getDocs, query, where, orderBy, limit, startAfter } from 'firebase/firestore';
 import { db } from '../../firebase';
@@ -81,6 +83,19 @@ const SPORTS = [
   'Bida'
 ];
 
+// Bảng ánh xạ tên thể thao giữa tiếng Anh và tiếng Việt
+const SPORT_MAPPINGS = {
+  'football': 'bóng đá',
+  'soccer': 'bóng đá',
+  'badminton': 'cầu lông',
+  'basketball': 'bóng rổ',
+  'tennis': 'tennis',
+  'volleyball': 'bóng chuyền',
+  'billiards': 'bida',
+  'pool': 'bida',
+  'snooker': 'bida',
+};
+
 // Danh sách khu vực
 const DISTRICTS = [
   'Tất cả',
@@ -110,6 +125,12 @@ const SearchCourts = () => {
   const [sport, setSport] = useState('Tất cả');
   const [district, setDistrict] = useState('Tất cả');
   const [priceRange, setPriceRange] = useState([0, 1000000]);
+  const [selectedDate, setSelectedDate] = useState('');
+  const [selectedTime, setSelectedTime] = useState('');
+  const [useLocation, setUseLocation] = useState(false);
+  const [userLocation, setUserLocation] = useState(null);
+  const [loadingLocation, setLoadingLocation] = useState(false);
+  const [locationError, setLocationError] = useState('');
   const [facilities, setFacilities] = useState({
     lighting: false,
     changingRoom: false,
@@ -131,46 +152,57 @@ const SearchCourts = () => {
     const fetchCourts = async () => {
       try {
         setLoading(true);
+        console.log('Bắt đầu truy vấn Firestore...');
         
         // Lấy dữ liệu từ Firestore với truy vấn đơn giản hơn
         const courtsRef = collection(db, 'courts');
         
-        // Chỉ lấy tất cả các sân mà không có điều kiện nào
-        console.log('Đang truy vấn collection courts...');
-        const querySnapshot = await getDocs(courtsRef);
-        
-        const courtsData = [];
-        console.log('Số lượng document tìm thấy:', querySnapshot.size);
-        
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          console.log("Sân:", doc.id, data.name || 'Chưa có tên');
+        // Thử kết nối với Firestore
+        try {
+          console.log('Đang truy vấn collection courts...');
+          const querySnapshot = await getDocs(courtsRef);
           
-          // Chuyển đổi dữ liệu, đảm bảo các trường cần thiết luôn tồn tại
-          courtsData.push({ 
-            id: doc.id, 
-            ...data,
-            name: data.name || 'Chưa có tên',
-            address: data.address || 'Chưa có địa chỉ',
-            price: data.price || 0,
-            sport: data.sport || 'Không xác định',
-            facilities: Array.isArray(data.facilities) ? data.facilities : [],
-            image: data.image || 'https://images.unsplash.com/photo-1459865264687-595d652de67e?q=80&w=800&auto=format&fit=crop',
-            rating: data.rating || 0
+          const courtsData = [];
+          console.log('Số lượng document tìm thấy:', querySnapshot.size);
+          
+          querySnapshot.forEach((doc) => {
+            const data = doc.data();
+            console.log("Sân:", doc.id, data.name || 'Chưa có tên');
+            
+            // Chuyển đổi dữ liệu, đảm bảo các trường cần thiết luôn tồn tại
+            courtsData.push({ 
+              id: doc.id, 
+              ...data,
+              name: data.name || 'Chưa có tên',
+              address: data.address || 'Chưa có địa chỉ',
+              price: data.price || 0,
+              sport: data.sport || 'Không xác định',
+              facilities: Array.isArray(data.facilities) ? data.facilities : [],
+              image: data.image || 'https://images.unsplash.com/photo-1459865264687-595d652de67e?q=80&w=800&auto=format&fit=crop',
+              rating: data.rating || 0
+            });
           });
-        });
-        
-        console.log('Tổng số sân tìm thấy:', courtsData.length);
-        
-        // Nếu không có dữ liệu từ Firestore, sử dụng dữ liệu demo
-        if (courtsData.length === 0) {
-          console.log('Không tìm thấy dữ liệu từ Firestore, sử dụng dữ liệu demo');
+          
+          console.log('Tổng số sân tìm thấy:', courtsData.length);
+          
+          // Nếu không có dữ liệu từ Firestore, sử dụng dữ liệu demo
+          if (courtsData.length === 0) {
+            console.log('Không tìm thấy dữ liệu từ Firestore, sử dụng dữ liệu demo');
+            setCourts(DEMO_COURTS);
+            setFilteredCourts(DEMO_COURTS);
+            setError('Không tìm thấy dữ liệu sân thật, hiển thị dữ liệu demo.');
+          } else {
+            console.log('Đã tìm thấy', courtsData.length, 'sân từ Firestore');
+            setCourts(courtsData);
+            setFilteredCourts(courtsData);
+            setError('');
+          }
+        } catch (firestoreError) {
+          console.error('Lỗi khi truy vấn Firestore:', firestoreError);
+          console.error('Chi tiết lỗi Firestore:', firestoreError.code, firestoreError.message);
+          setError('Lỗi kết nối Firestore. Hiển thị dữ liệu demo.');
           setCourts(DEMO_COURTS);
           setFilteredCourts(DEMO_COURTS);
-        } else {
-          console.log('Đã tìm thấy', courtsData.length, 'sân từ Firestore');
-          setCourts(courtsData);
-          setFilteredCourts(courtsData);
         }
         
       } catch (error) {
@@ -203,9 +235,27 @@ const SearchCourts = () => {
         );
       }
 
-      // Lọc theo môn thể thao
+      // Lọc theo môn thể thao - Sử dụng kiểm tra không phân biệt hoa thường và hỗ trợ cả tiếng Anh/tiếng Việt
       if (sport !== 'Tất cả') {
-        result = result.filter(court => court.sport === sport);
+        result = result.filter(court => {
+          // Đảm bảo court.sport luôn có giá trị để tránh lỗi
+          const courtSport = (court.sport || '').toLowerCase();
+          const selectedSport = sport.toLowerCase();
+          
+          // Kiểm tra tên trùng khớp trực tiếp
+          if (courtSport === selectedSport) return true;
+          
+          // Kiểm tra xem courtSport có phải là tên tiếng Anh không
+          for (const [engName, viName] of Object.entries(SPORT_MAPPINGS)) {
+            // Nếu tên tiếng Anh trong cơ sở dữ liệu, nhưng người dùng tìm bằng tên tiếng Việt
+            if (courtSport === engName && viName === selectedSport) return true;
+            
+            // Nếu tên tiếng Việt trong cơ sở dữ liệu, nhưng người dùng tìm bằng tên tiếng Anh
+            if (courtSport === viName && engName === selectedSport) return true;
+          }
+          
+          return false;
+        });
       }
 
       // Lọc theo khu vực
@@ -217,6 +267,58 @@ const SearchCourts = () => {
       result = result.filter(
         court => court.price >= priceRange[0] && court.price <= priceRange[1]
       );
+      
+      // Lọc theo ngày (nếu có)
+      if (selectedDate) {
+        // Nếu sân có thông tin availableSlots, kiểm tra xem có slot cho ngày đã chọn không
+        result = result.filter(court => {
+          if (!court.availableSlots || !Array.isArray(court.availableSlots)) return true;
+          return court.availableSlots.some(slot => slot.date === selectedDate);
+        });
+      }
+      
+      // Lọc theo giờ (nếu có)
+      if (selectedTime) {
+        // Kiểm tra xem sân có mở cửa trong khoảng thời gian đã chọn không
+        result = result.filter(court => {
+          if (!court.openTime || !court.closeTime) return true;
+          
+          // Chuyển đổi thời gian sang số để so sánh
+          const timeValue = parseInt(selectedTime.replace(':', ''));
+          const openTimeValue = parseInt(court.openTime.replace(':', ''));
+          const closeTimeValue = parseInt(court.closeTime.replace(':', ''));
+          
+          return timeValue >= openTimeValue && timeValue <= closeTimeValue;
+        });
+      }
+      
+      // Lọc theo vị trí (nếu có)
+      if (useLocation && userLocation) {
+        // Thêm khoảng cách vào mỗi sân
+        result = result.map(court => {
+          let distance = Infinity;
+          
+          // Nếu sân có thông tin vị trí
+          if (court.location && court.location.latitude && court.location.longitude) {
+            distance = calculateDistance(
+              userLocation.latitude,
+              userLocation.longitude,
+              court.location.latitude,
+              court.location.longitude
+            );
+          }
+          
+          return { ...court, distance };
+        });
+        
+        // Sắp xếp theo khoảng cách gần nhất
+        result.sort((a, b) => a.distance - b.distance);
+        
+        // Chỉ lấy các sân trong bán kính 10km (nếu có thông tin khoảng cách)
+        result = result.filter(court => {
+          return court.distance === Infinity || court.distance <= 10;
+        });
+      }
 
       // Lọc theo tiện ích
       if (facilities.lighting) {
@@ -264,7 +366,7 @@ const SearchCourts = () => {
     };
 
     applyFilters();
-  }, [searchTerm, sport, district, priceRange, facilities, courts]);
+  }, [searchTerm, sport, district, priceRange, facilities, courts, selectedDate, selectedTime, useLocation, userLocation]);
 
   // Calculate pagination
   const totalPages = Math.ceil(filteredCourts.length / courtsPerPage);
@@ -296,14 +398,87 @@ const SearchCourts = () => {
     }).format(price).replace('₫', 'VNĐ');
   };
 
+  // Hàm lấy vị trí hiện tại của người dùng
+  const getUserLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationError('Trình duyệt của bạn không hỗ trợ định vị.');
+      return;
+    }
+    
+    setLoadingLocation(true);
+    setLocationError('');
+    
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        setUserLocation({ latitude, longitude });
+        setUseLocation(true);
+        setLoadingLocation(false);
+      },
+      (error) => {
+        setLocationError('Không thể lấy vị trí của bạn. Vui lòng kiểm tra quyền truy cập vị trí.');
+        setUseLocation(false);
+        setLoadingLocation(false);
+        console.error('Lỗi định vị:', error);
+      }
+    );
+  };
+  
+  // Tính khoảng cách giữa hai điểm trên bản đồ (sử dụng công thức Haversine)
+  const calculateDistance = (lat1, lon1, lat2, lon2) => {
+    const R = 6371; // Bán kính trái đất tính bằng km
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    
+    const a = 
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * 
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = R * c;
+    
+    return distance;
+  };
+  
+  // Chuyển đổi độ sang radian
+  const toRad = (value) => {
+    return value * Math.PI / 180;
+  };
+  
+  // Xử lý thay đổi ngày
+  const handleDateChange = (event) => {
+    setSelectedDate(event.target.value);
+  };
+  
+  // Xử lý thay đổi giờ
+  const handleTimeChange = (event) => {
+    setSelectedTime(event.target.value);
+  };
+  
+  // Bật/tắt tìm kiếm theo vị trí
+  const toggleLocationSearch = () => {
+    if (!useLocation) {
+      getUserLocation();
+    } else {
+      setUseLocation(false);
+    }
+  };
+
   return (
-    <Box sx={{ p: { xs: 2, md: 3 } }}>
-      <Typography variant="h4" sx={{ mb: 3, fontWeight: 'bold' }}>
+    <Box sx={{ p: 2, maxWidth: 1200, margin: '0 auto' }}>
+      <Typography variant="h4" gutterBottom>
         Tìm kiếm sân thể thao
       </Typography>
 
-      {/* Search bar */}
-      <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
+      {error && (
+        <Alert severity="info" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
+      {/* Form tìm kiếm */}
+      <Paper sx={{ p: 2, mb: 2 }}>
         <TextField
           fullWidth
           placeholder="Tìm kiếm sân theo tên hoặc địa chỉ..."
@@ -352,7 +527,57 @@ const SearchCourts = () => {
               </Select>
             </FormControl>
           </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <TextField
+              fullWidth
+              label="Chọn ngày"
+              type="date"
+              value={selectedDate}
+              onChange={handleDateChange}
+              InputLabelProps={{
+                shrink: true,
+              }}
+            />
+          </Grid>
+          <Grid item xs={12} sm={6} md={3}>
+            <TextField
+              fullWidth
+              label="Chọn giờ"
+              type="time"
+              value={selectedTime}
+              onChange={handleTimeChange}
+              InputLabelProps={{
+                shrink: true,
+              }}
+              inputProps={{
+                step: 1800, // 30 phút
+              }}
+            />
+          </Grid>
         </Grid>
+        
+        <Box sx={{ mt: 2, mb: 2 }}>
+          <FormControlLabel
+            control={
+              <Checkbox 
+                checked={useLocation}
+                onChange={toggleLocationSearch}
+                color="primary"
+              />
+            }
+            label={loadingLocation ? "Đang xác định vị trí..." : "Tìm sân gần tôi"}
+          />
+          {locationError && (
+            <Typography variant="body2" color="error" sx={{ mt: 1 }}>
+              {locationError}
+            </Typography>
+          )}
+          {useLocation && userLocation && (
+            <Typography variant="body2" color="success.main" sx={{ mt: 1 }}>
+              Đã xác định vị trí của bạn. Hiển thị sân trong bán kính 10km.
+            </Typography>
+          )}
+        </Box>
 
         <Typography variant="h6" sx={{ mt: 3, mb: 2 }}>
           Bộ lọc nâng cao
@@ -514,20 +739,28 @@ const SearchCourts = () => {
                         <LocationOnIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} />
                         <Typography variant="body2" color="text.secondary">
                           {court.address}
+                          {useLocation && court.distance && court.distance !== Infinity && (
+                            <span> ({court.distance.toFixed(1)} km)</span>
+                          )}
                         </Typography>
                       </Box>
                       <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                         <SportsIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} />
                         <Typography variant="body2" color="text.secondary">
-                          {court.sport}
+                          {court.sport || "Không xác định"}
                         </Typography>
                       </Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                         <StarIcon fontSize="small" sx={{ mr: 1, color: 'warning.main' }} />
                         <Typography variant="body2" component="span">
-                          {court.rating}
+                          {court.rating || "Chưa có đánh giá"}
                         </Typography>
                       </Box>
+                      {court.openTime && court.closeTime && (
+                        <Typography variant="body2" color="text.secondary">
+                          Giờ mở cửa: {court.openTime} - {court.closeTime}
+                        </Typography>
+                      )}
                     </CardContent>
                     <CardActions sx={{ justifyContent: 'space-between', p: 2 }}>
                       <Typography variant="body1" fontWeight="bold">

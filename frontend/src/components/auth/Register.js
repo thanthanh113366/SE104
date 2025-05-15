@@ -10,33 +10,97 @@ import {
   IconButton,
   InputAdornment,
   Alert,
-  Link as MuiLink
+  Link as MuiLink,
+  Checkbox,
+  FormControlLabel
 } from '@mui/material';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import GoogleIcon from '@mui/icons-material/Google';
+import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { db } from '../../firebase';
 
 const Register = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [acceptTerms, setAcceptTerms] = useState(false);
+  const [emailError, setEmailError] = useState('');
+  const [phoneError, setPhoneError] = useState('');
   
   const { register, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
   
-  const validateForm = () => {
+  // Kiểm tra email hợp lệ
+  const isValidEmail = (email) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+  
+  // Kiểm tra số điện thoại hợp lệ (10 số, bắt đầu bằng 0)
+  const isValidPhone = (phone) => {
+    const phoneRegex = /^0\d{9}$/;
+    return phoneRegex.test(phone);
+  };
+  
+  // Kiểm tra email đã tồn tại hay chưa
+  const checkEmailExists = async (email) => {
+    try {
+      const usersRef = collection(db, "users");
+      const q = query(usersRef, where("email", "==", email));
+      const snapshot = await getDocs(q);
+      return !snapshot.empty;
+    } catch (error) {
+      console.error("Lỗi khi kiểm tra email:", error);
+      throw error;
+    }
+  };
+  
+  // Kiểm tra số điện thoại đã tồn tại hay chưa
+  const checkPhoneExists = async (phone) => {
+    try {
+      const usersRef = collection(db, "users");
+      const q = query(usersRef, where("phoneNumber", "==", phone));
+      const snapshot = await getDocs(q);
+      return !snapshot.empty;
+    } catch (error) {
+      console.error("Lỗi khi kiểm tra số điện thoại:", error);
+      throw error;
+    }
+  };
+  
+  const validateForm = async () => {
+    // Reset các lỗi
+    setEmailError('');
+    setPhoneError('');
+    setError('');
+    
     // Kiểm tra form
-    if (!email || !password || !confirmPassword || !displayName) {
+    if (!email || !password || !confirmPassword || !displayName || !phoneNumber) {
       setError('Vui lòng điền đầy đủ thông tin');
       return false;
     }
     
+    // Kiểm tra email hợp lệ
+    if (!isValidEmail(email)) {
+      setEmailError('Email không hợp lệ');
+      return false;
+    }
+    
+    // Kiểm tra số điện thoại hợp lệ
+    if (!isValidPhone(phoneNumber)) {
+      setPhoneError('Số điện thoại không hợp lệ (phải có 10 số và bắt đầu bằng số 0)');
+      return false;
+    }
+    
+    // Kiểm tra mật khẩu
     if (password !== confirmPassword) {
       setError('Mật khẩu xác nhận không khớp');
       return false;
@@ -47,18 +111,50 @@ const Register = () => {
       return false;
     }
     
+    // Kiểm tra điều khoản
+    if (!acceptTerms) {
+      setError('Bạn cần đồng ý với điều khoản và chính sách');
+      return false;
+    }
+    
+    try {
+      // Kiểm tra email đã tồn tại
+      const emailExists = await checkEmailExists(email);
+      if (emailExists) {
+        setEmailError('Email này đã được sử dụng');
+        return false;
+      }
+      
+      // Kiểm tra số điện thoại đã tồn tại
+      const phoneExists = await checkPhoneExists(phoneNumber);
+      if (phoneExists) {
+        setPhoneError('Số điện thoại này đã được sử dụng');
+        return false;
+      }
+    } catch (error) {
+      setError('Lỗi khi kiểm tra thông tin: ' + error.message);
+      return false;
+    }
+    
     return true;
   };
   
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (!validateForm()) return;
+    if (!(await validateForm())) return;
     
     try {
       setError('');
       setLoading(true);
-      await register(email, password, displayName);
+      const user = await register(email, password, displayName);
+      
+      // Cập nhật thêm số điện thoại
+      const userDocRef = doc(db, "users", user.uid);
+      await updateDoc(userDocRef, {
+        phoneNumber: phoneNumber
+      });
+      
       navigate('/select-role'); // Điều hướng sẽ được xử lý bởi ProtectedRoute
     } catch (error) {
       setError('Đăng ký thất bại: ' + error.message);
@@ -68,6 +164,11 @@ const Register = () => {
   };
   
   const handleGoogleRegister = async () => {
+    if (!acceptTerms) {
+      setError('Bạn cần đồng ý với điều khoản và chính sách');
+      return;
+    }
+    
     try {
       setError('');
       setLoading(true);
@@ -121,6 +222,23 @@ const Register = () => {
               autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              error={!!emailError}
+              helperText={emailError}
+              sx={{ mb: 2 }}
+            />
+            
+            <TextField
+              margin="normal"
+              required
+              fullWidth
+              id="phoneNumber"
+              label="Số điện thoại"
+              name="phoneNumber"
+              autoComplete="tel"
+              value={phoneNumber}
+              onChange={(e) => setPhoneNumber(e.target.value)}
+              error={!!phoneError}
+              helperText={phoneError}
               sx={{ mb: 2 }}
             />
             
@@ -163,6 +281,25 @@ const Register = () => {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               sx={{ mb: 3 }}
+            />
+            
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={acceptTerms}
+                  onChange={(e) => setAcceptTerms(e.target.checked)}
+                  color="primary"
+                />
+              }
+              label={
+                <Typography variant="body2">
+                  Tôi đồng ý với{' '}
+                  <MuiLink component={Link} to="/terms" variant="body2" sx={{ fontWeight: 'bold' }}>
+                    Điều khoản và Chính sách
+                  </MuiLink>
+                </Typography>
+              }
+              sx={{ mb: 2 }}
             />
             
             <Button

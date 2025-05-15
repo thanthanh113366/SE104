@@ -7,9 +7,11 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import Login from './components/auth/Login';
 import Register from './components/auth/Register';
 import RoleSelection from './components/auth/RoleSelection';
+import TermsAndConditions from './components/auth/TermsAndConditions';
 import AdminDashboard from './components/admin/AdminDashboard';
 import OwnerDashboard from './components/owner/OwnerDashboard';
 import RenterDashboard from './components/renter/RenterDashboard';
+import UserProfile from './components/shared/UserProfile';
 
 // AuthContext
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -126,6 +128,7 @@ function App() {
             {/* Public routes */}
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/terms" element={<TermsAndConditions />} />
             
             {/* Auth required routes */}
             <Route path="/select-role" element={
@@ -150,6 +153,13 @@ function App() {
             <Route path="/renter/*" element={
               <ProtectedRoute requiredRole="renter">
                 <RenterDashboard />
+              </ProtectedRoute>
+            } />
+            
+            {/* Profile route */}
+            <Route path="/profile" element={
+              <ProtectedRoute>
+                <UserProfile />
               </ProtectedRoute>
             } />
             

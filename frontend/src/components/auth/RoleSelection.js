@@ -14,6 +14,8 @@ import {
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../../firebase';
 
 // Icons
 import SportsSoccerIcon from '@mui/icons-material/SportsSoccer';
@@ -36,15 +38,40 @@ const RoleSelection = () => {
       console.log("Chọn vai trò:", role);
       console.log("Thông tin người dùng hiện tại:", userDetails);
       
+      if (!currentUser) {
+        throw new Error("Không thể xác thực người dùng. Vui lòng đăng nhập lại.");
+      }
+      
+      // Cập nhật vai trò
       await updateUserRole(role);
       console.log("Đã cập nhật vai trò, chuyển hướng đến:", role === 'owner' ? '/owner' : '/renter');
       
-      // Chuyển hướng dựa trên vai trò
-      if (role === 'owner') {
-        navigate('/owner');
-      } else if (role === 'renter') {
-        navigate('/renter');
-      }
+      // Đợi một chút để đảm bảo Firestore đã cập nhật
+      setTimeout(async () => {
+        try {
+          // Tải lại dữ liệu người dùng từ Firestore trước khi chuyển hướng
+          const userRef = doc(db, "users", currentUser.uid);
+          const userSnap = await getDoc(userRef);
+          
+          if (userSnap.exists() && userSnap.data().role === role) {
+            // Chuyển hướng dựa trên vai trò
+            if (role === 'owner') {
+              navigate('/owner');
+            } else if (role === 'renter') {
+              navigate('/renter');
+            }
+          } else {
+            // Nếu dữ liệu không được cập nhật đúng
+            console.error("Lỗi: Dữ liệu vai trò không được cập nhật đúng");
+            setError("Lỗi cập nhật vai trò. Vui lòng thử lại.");
+            setRoleSelected(false);
+          }
+        } catch (delayedError) {
+          console.error("Lỗi khi tải lại dữ liệu người dùng:", delayedError);
+          setError("Không thể tải dữ liệu người dùng. Vui lòng thử lại.");
+          setRoleSelected(false);
+        }
+      }, 1000);
     } catch (error) {
       console.error("Lỗi khi cập nhật vai trò:", error);
       setError('Không thể cập nhật vai trò: ' + error.message);
@@ -54,43 +81,47 @@ const RoleSelection = () => {
     }
   };
   
+  // Hàm làm mới trang
+  const handleRetry = () => {
+    window.location.reload();
+  };
+  
   // Kiểm tra nếu người dùng đã có vai trò, chuyển hướng trực tiếp
   useEffect(() => {
-    console.log("userDetails trong RoleSelection:", userDetails);
+    let isMounted = true;
     
-    if (userDetails && userDetails.role) {
-      console.log("Phát hiện vai trò:", userDetails.role);
+    const checkUserRole = async () => {
+      console.log("userDetails trong RoleSelection:", userDetails);
       
-      setTimeout(() => {
-        if (userDetails.role === 'owner') {
-          console.log("Chuyển hướng đến trang chủ sân");
-          navigate('/owner');
-        } else if (userDetails.role === 'renter') {
-          console.log("Chuyển hướng đến trang người thuê");
-          navigate('/renter');
-        } else if (userDetails.role === 'admin') {
-          console.log("Chuyển hướng đến trang admin");
-          navigate('/admin');
-        }
-      }, 100); // Timeout để đảm bảo state đã cập nhật đầy đủ
-    } else {
-      console.log("Người dùng chưa có vai trò hoặc chưa có thông tin chi tiết");
-    }
-  }, [userDetails, navigate]);
-  
-  // Kiểm tra thêm: nếu đã chọn vai trò nhưng vẫn đang ở trang chọn vai trò
-  useEffect(() => {
-    if (roleSelected && userDetails && userDetails.role) {
-      console.log("Đã chọn vai trò nhưng vẫn ở trang chọn vai trò, thử chuyển hướng lại");
-      if (userDetails.role === 'owner') {
-        navigate('/owner');
-      } else if (userDetails.role === 'renter') {
-        navigate('/renter');
-      } else if (userDetails.role === 'admin') {
-        navigate('/admin');
+      if (userDetails && userDetails.role && isMounted) {
+        console.log("Phát hiện vai trò:", userDetails.role);
+        
+        // Thêm timeout để tránh chuyển hướng quá nhanh
+        setTimeout(() => {
+          if (!isMounted) return;
+          
+          if (userDetails.role === 'owner') {
+            console.log("Chuyển hướng đến trang chủ sân");
+            navigate('/owner');
+          } else if (userDetails.role === 'renter') {
+            console.log("Chuyển hướng đến trang người thuê");
+            navigate('/renter');
+          } else if (userDetails.role === 'admin') {
+            console.log("Chuyển hướng đến trang admin");
+            navigate('/admin');
+          }
+        }, 300);
+      } else {
+        console.log("Người dùng chưa có vai trò hoặc chưa có thông tin chi tiết");
       }
-    }
-  }, [roleSelected, userDetails, navigate]);
+    };
+    
+    checkUserRole();
+    
+    return () => {
+      isMounted = false;
+    };
+  }, [userDetails, navigate]);
   
   if (loading) {
     return (
@@ -99,16 +130,6 @@ const RoleSelection = () => {
       </Box>
     );
   }
-  
-  // Hiển thị thông tin debug nếu có vấn đề
-  const debugInfo = (
-    <Box sx={{ mt: 2, p: 2, backgroundColor: '#f5f5f5', borderRadius: 1 }}>
-      <Typography variant="subtitle2" gutterBottom>Thông tin debug:</Typography>
-      <Typography variant="body2">Đã đăng nhập: {currentUser ? 'Có' : 'Không'}</Typography>
-      <Typography variant="body2">Có thông tin chi tiết: {userDetails ? 'Có' : 'Không'}</Typography>
-      <Typography variant="body2">Vai trò hiện tại: {userDetails?.role || 'Chưa thiết lập'}</Typography>
-    </Box>
-  );
   
   return (
     <Container component="main" maxWidth="md">
@@ -128,7 +149,21 @@ const RoleSelection = () => {
             Vui lòng chọn vai trò phù hợp với bạn. Bạn có thể thay đổi vai trò này sau.
           </Typography>
           
-          {error && <Alert severity="error" sx={{ width: '100%', mb: 3 }}>{error}</Alert>}
+          {error && (
+            <Box sx={{ width: '100%', mb: 3 }}>
+              <Alert 
+                severity="error" 
+                sx={{ mb: 2 }}
+                action={
+                  <Button color="inherit" size="small" onClick={handleRetry}>
+                    Thử lại
+                  </Button>
+                }
+              >
+                {error}
+              </Alert>
+            </Box>
+          )}
           
           <Grid container spacing={3}>
             <Grid item xs={12} md={6}>
@@ -203,9 +238,6 @@ const RoleSelection = () => {
               </Card>
             </Grid>
           </Grid>
-          
-          {/* Debug Info - Hiển thị trong môi trường phát triển */}
-          {process.env.NODE_ENV === 'development' && debugInfo}
         </Box>
       </Paper>
     </Container>

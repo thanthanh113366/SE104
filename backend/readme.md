@@ -1,4 +1,25 @@
-# Backend cho ứng dụng đặt sân thể thao
+# Sports Court Booking Backend
+
+Backend API cho ứng dụng đặt sân thể thao.
+
+## Cài đặt
+
+```bash
+npm install
+```
+
+## Chạy server
+
+```bash
+npm start
+```
+
+## Tài khoản chủ sân
+
+Ứng dụng sử dụng 2 tài khoản chủ sân chính:
+
+- Thanh Thanh 1: thanthanh1369@gmail.com (13 sân)
+- Thanh Thanh 2: thanthanh13699@gmail.com (12 sân)
 
 ## Cấu hình Firebase
 
@@ -32,4 +53,4 @@
 ## Lưu ý bảo mật
 
 - Không commit file `serviceAccountKey.json` lên Git
-- File này đã được thêm vào `.gitignore` 
+- File này đã được thêm vào `.gitignore`
