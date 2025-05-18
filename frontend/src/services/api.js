@@ -1,11 +1,10 @@
 import axios from 'axios';
 import { auth } from '../firebase';
-
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+import { API_BASE_URL } from '../config/appConfig';
 
 // Axios instance với cấu hình mặc định
 const api = axios.create({
-  baseURL: API_URL,
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },

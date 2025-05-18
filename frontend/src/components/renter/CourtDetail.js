@@ -35,9 +35,9 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import PaidIcon from '@mui/icons-material/Paid';
 import StarIcon from '@mui/icons-material/Star';
 import BookOnlineIcon from '@mui/icons-material/BookOnline';
-import { doc, getDoc, collection, addDoc, query, where, getDocs } from 'firebase/firestore';
-import { db } from '../../firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import CourtServiceWrapper from '../../services/courtServiceWrapper';
+import BookingServiceWrapper from '../../services/bookingServiceWrapper';
 
 // Demo data (sẽ thay bằng dữ liệu từ Firestore)
 const DEMO_COURTS = [
@@ -160,52 +160,41 @@ const CourtDetail = () => {
       try {
         setLoading(true);
         
-        // Lấy dữ liệu từ Firestore
+        // Lấy dữ liệu sử dụng service wrapper thay vì Firestore trực tiếp
         console.log('Đang lấy thông tin sân với ID:', courtId);
-        const courtRef = doc(db, 'courts', courtId);
-        const courtDoc = await getDoc(courtRef);
         
-        if (courtDoc.exists()) {
-          console.log('Đã tìm thấy thông tin sân từ Firestore:', courtDoc.id);
-          const data = courtDoc.data();
-          console.log('Dữ liệu sân:', data);
-          console.log('ownerId từ Firestore:', data.ownerId);
+        try {
+          const courtData = await CourtServiceWrapper.getCourtById(courtId);
           
-          // Hoàn thiện dữ liệu
-          const courtData = {
-            id: courtDoc.id,
-            ...data,
-            ownerId: data.ownerId || '',
-            name: data.name || 'Chưa có tên',
-            address: data.address || 'Chưa có địa chỉ',
-            description: data.description || 'Chưa có mô tả',
-            price: data.price || 0,
-            sport: data.sport || 'Không xác định',
-            facilities: Array.isArray(data.facilities) ? data.facilities : [],
-            openTime: data.openTime || '06:00',
-            closeTime: data.closeTime || '22:00',
-            rating: data.rating || 0,
-            reviews: data.reviews || [],
-            image: data.image || 'https://images.unsplash.com/photo-1459865264687-595d652de67e?q=80&w=800&auto=format&fit=crop',
-            owner: data.owner || { name: 'Chưa có thông tin', phone: 'Chưa có thông tin' },
-          };
-          
-          setCourt(courtData);
-        } else {
-          console.log('Không tìm thấy sân trong Firestore với ID:', courtId);
-          // Nếu không có dữ liệu trong Firestore, tìm từ dữ liệu demo
+          if (courtData) {
+            console.log('Đã tìm thấy thông tin sân:', courtData.id);
+            console.log('Dữ liệu sân:', courtData);
+            setCourt(courtData);
+          } else {
+            console.log('Không tìm thấy sân với ID:', courtId);
+            // Nếu không có dữ liệu, tìm từ dữ liệu demo
+            const foundCourt = DEMO_COURTS.find(c => c.id === courtId);
+            if (foundCourt) {
+              console.log('Đã tìm thấy sân trong dữ liệu demo');
+              setCourt(foundCourt);
+            } else {
+              setError('Không tìm thấy thông tin sân');
+            }
+          }
+        } catch (fetchError) {
+          console.error('Lỗi khi lấy dữ liệu sân:', fetchError);
+          // Sử dụng dữ liệu demo nếu có lỗi xảy ra
           const foundCourt = DEMO_COURTS.find(c => c.id === courtId);
           if (foundCourt) {
-            console.log('Đã tìm thấy sân trong dữ liệu demo');
             setCourt(foundCourt);
+            setError('Đang hiển thị dữ liệu demo do có lỗi khi lấy dữ liệu thực.');
           } else {
-            console.log('Không tìm thấy sân trong cả Firestore và dữ liệu demo');
-            setError('Không tìm thấy thông tin sân');
+            setError('Không thể tải thông tin sân. Vui lòng thử lại sau.');
           }
         }
-      } catch (err) {
-        console.error('Lỗi khi lấy thông tin sân:', err);
-        console.error('Chi tiết lỗi:', err.code, err.message);
+      } catch (error) {
+        console.error('Lỗi khi lấy thông tin sân:', error);
+        console.error('Chi tiết lỗi:', error.code, error.message);
         setError('Đã xảy ra lỗi khi tải thông tin sân. Vui lòng thử lại sau.');
         
         // Nếu có lỗi, thử dùng dữ liệu demo
@@ -223,65 +212,36 @@ const CourtDetail = () => {
     fetchCourtDetails();
   }, [courtId]);
   
-  // Lấy danh sách các lượt đặt sân hiện có cho ngày đã chọn
+  // Fetch existing bookings
   useEffect(() => {
     const fetchExistingBookings = async () => {
-      if (!court || !selectedDate) return;
-      
       try {
-        // Chuyển selectedDate thành timestamp bắt đầu và kết thúc ngày
-        const startDate = new Date(selectedDate);
-        startDate.setHours(0, 0, 0, 0);
+        if (!court) return;
         
-        const endDate = new Date(selectedDate);
-        endDate.setHours(23, 59, 59, 999);
+        console.log('Đang lấy các lịch đặt sân hiện có cho sân:', courtId);
         
-        console.log(`Đang lấy danh sách đặt sân cho ngày ${startDate.toLocaleDateString()}`);
-        
-        // Truy vấn Firestore để lấy tất cả booking cho sân này trong ngày đã chọn
-        const bookingsRef = collection(db, 'bookings');
-        
-        // Query theo courtId
-        // Lưu ý: Do vấn đề với queries dựa trên timestamp, chúng ta sẽ lọc lại ngày sau khi lấy dữ liệu
-        const q = query(
-          bookingsRef,
-          where('courtId', '==', court.id)
-        );
-        
-        const querySnapshot = await getDocs(q);
-        const bookings = [];
-        
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          console.log("Booking từ Firestore:", doc.id, data);
+        try {
+          const response = await BookingServiceWrapper.getCourtBookings(courtId);
           
-          const bookingDate = convertFirestoreDate(data.date);
-          
-          // Chỉ xử lý các đặt sân cho ngày đã chọn
-          if (isSameDay(bookingDate, selectedDate) && data.status !== 'rejected') {
-            console.log(`Booking ${doc.id} hợp lệ cho ngày ${selectedDate.toLocaleDateString()}`);
-            
-            bookings.push({
-              id: doc.id,
-              ...data,
-              date: bookingDate,
-              startTime: data.startTime,
-              endTime: data.endTime
-            });
+          if (response && response.bookings) {
+            console.log('Số lượng lịch đặt sân tìm thấy:', response.bookings.length);
+            setExistingBookings(response.bookings);
+          } else {
+            console.log('Không tìm thấy lịch đặt sân nào');
+            setExistingBookings([]);
           }
-        });
-        
-        console.log(`Tìm thấy ${bookings.length} lượt đặt sân hợp lệ cho ngày ${startDate.toLocaleDateString()}`);
-        console.log('Danh sách đặt sân hợp lệ:', bookings);
-        
-        setExistingBookings(bookings);
+        } catch (fetchError) {
+          console.error('Lỗi khi lấy lịch đặt sân:', fetchError);
+          setExistingBookings([]);
+        }
       } catch (error) {
         console.error('Lỗi khi lấy danh sách đặt sân:', error);
+        setExistingBookings([]);
       }
     };
     
     fetchExistingBookings();
-  }, [court, selectedDate]);
+  }, [court, courtId]);
   
   // Tạo các khung giờ từ giờ mở cửa đến giờ đóng cửa
   const generateTimeSlots = () => {
@@ -361,92 +321,50 @@ const CourtDetail = () => {
   };
   
   const handleBooking = async () => {
-    if (!currentUser) {
-      alert('Vui lòng đăng nhập để đặt sân!');
-      return;
-    }
-    
     try {
+      if (!currentUser) {
+        navigate('/login', { state: { redirectPath: `/courts/${courtId}` } });
+        return;
+      }
+
       setBookingLoading(true);
-      
-      console.log('Thông tin sân khi đặt:', court);
-      console.log('Slot được chọn:', selectedSlot);
-      
-      // Lấy thông tin user từ Firestore
-      const userRef = doc(db, 'users', currentUser.uid);
-      const userSnap = await getDoc(userRef);
-      const userData = userSnap.exists() ? userSnap.data() : null;
-      
-      // Tính tổng tiền
-      const price = court.price || 0;
-      // Chuyển startTime và endTime thành phút
-      const [startHour, startMinute] = selectedSlot.startTime.split(':').map(Number);
-      const [endHour, endMinute] = selectedSlot.endTime.split(':').map(Number);
-      
-      const startTotalMinutes = startHour * 60 + startMinute;
-      const endTotalMinutes = endHour * 60 + endMinute;
-      
-      const durationHours = (endTotalMinutes - startTotalMinutes) / 60;
-      const totalPrice = price * durationHours;
-      
-      // Định dạng ngày
-      const bookingDate = new Date(selectedDate);
-      
-      // Tạo dữ liệu đặt sân
+
+      // Dữ liệu đặt sân
       const bookingData = {
+        userId: currentUser.uid,
+        userName: userDetails?.name || currentUser.email,
+        userPhone: userDetails?.phone || 'Chưa cung cấp',
         courtId: court.id,
         courtName: court.name,
-        ownerId: court.ownerId,
-        userId: currentUser.uid,
-        customerName: userData?.displayName || currentUser.displayName || 'Khách hàng',
-        customerPhone: userData?.phoneNumber || '',
-        customerEmail: userData?.email || currentUser.email || '',
-        date: bookingDate,
-        startTime: selectedSlot.startTime,
-        endTime: selectedSlot.endTime,
-        time: selectedSlot.time,
-        duration: durationHours,
-        totalPrice: totalPrice,
-        sport: court.sport || 'Không xác định',
+        date: selectedDate,
+        startTime: selectedSlot.start,
+        endTime: selectedSlot.end,
+        price: selectedSlot.price,
+        paymentMethod,
+        note,
         status: 'pending',
-        paymentStatus: 'unpaid',
-        paymentMethod: paymentMethod,
-        notes: note,
-        address: court.address || '',
-        createdAt: new Date(),
-        courtImage: court.image || ''
+        createdAt: new Date()
       };
-      
-      console.log('Dữ liệu booking sẽ lưu vào Firestore:', bookingData);
-      console.log('Owner ID của sân:', court.ownerId);
-      
-      // Lưu thông tin đặt sân vào Firestore
-      const bookingsRef = collection(db, 'bookings');
-      const newBookingRef = await addDoc(bookingsRef, bookingData);
-      
-      console.log('Đã lưu booking mới vào Firestore với ID:', newBookingRef.id);
-      
-      // Hiển thị thông báo thành công
-      alert('Đặt sân thành công! Chủ sân sẽ xác nhận đặt sân của bạn sớm.');
-      
-      // Đóng dialog và cập nhật lại danh sách đặt sân
-      setBookingOpen(false);
-      setSelectedSlot(null);
-      setNote('');
-      setPaymentMethod('cash');
-      
-      // Thêm booking mới vào danh sách đặt sân hiện tại
-      setExistingBookings(prevBookings => [
-        ...prevBookings,
-        {
-          id: newBookingRef.id,
-          ...bookingData
-        }
-      ]);
-      
+
+      console.log('Đang tạo đơn đặt sân với dữ liệu:', bookingData);
+
+      try {
+        // Sử dụng service wrapper thay vì Firestore trực tiếp
+        const response = await BookingServiceWrapper.createBooking(courtId, bookingData);
+        
+        console.log('Đặt sân thành công, ID:', response.id);
+        alert('Đặt sân thành công! Chủ sân sẽ liên hệ với bạn để xác nhận.');
+        setBookingOpen(false);
+        // Làm mới danh sách đặt sân
+        const updatedBookings = await BookingServiceWrapper.getCourtBookings(courtId);
+        setExistingBookings(updatedBookings.bookings || []);
+      } catch (bookingError) {
+        console.error('Lỗi khi đặt sân:', bookingError);
+        alert('Đặt sân không thành công! Vui lòng thử lại sau.');
+      }
     } catch (error) {
       console.error('Lỗi khi đặt sân:', error);
-      alert('Có lỗi xảy ra khi đặt sân. Vui lòng thử lại sau.');
+      alert('Đặt sân không thành công! Vui lòng thử lại sau.');
     } finally {
       setBookingLoading(false);
     }

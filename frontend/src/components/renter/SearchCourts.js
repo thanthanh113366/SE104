@@ -29,8 +29,7 @@ import StarIcon from '@mui/icons-material/Star';
 import MyLocationIcon from '@mui/icons-material/MyLocation';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import { useNavigate } from 'react-router-dom';
-import { collection, getDocs, query, where, orderBy, limit, startAfter } from 'firebase/firestore';
-import { db } from '../../firebase';
+import CourtServiceWrapper from '../../services/courtServiceWrapper';
 
 // Demo data
 const DEMO_COURTS = [
@@ -147,66 +146,33 @@ const SearchCourts = () => {
 
   const navigate = useNavigate();
 
-  // Fetch courts from Firestore
+  // Fetch courts using the wrapper
   useEffect(() => {
     const fetchCourts = async () => {
       try {
         setLoading(true);
-        console.log('Bắt đầu truy vấn Firestore...');
+        console.log('Bắt đầu lấy dữ liệu sân...');
         
-        // Lấy dữ liệu từ Firestore với truy vấn đơn giản hơn
-        const courtsRef = collection(db, 'courts');
+        // Sử dụng CourtsServiceWrapper thay vì truy cập Firestore trực tiếp
+        const response = await CourtServiceWrapper.getCourts();
+        const courtsData = response.courts || [];
         
-        // Thử kết nối với Firestore
-        try {
-          console.log('Đang truy vấn collection courts...');
-          const querySnapshot = await getDocs(courtsRef);
-          
-          const courtsData = [];
-          console.log('Số lượng document tìm thấy:', querySnapshot.size);
-          
-          querySnapshot.forEach((doc) => {
-            const data = doc.data();
-            console.log("Sân:", doc.id, data.name || 'Chưa có tên');
-            
-            // Chuyển đổi dữ liệu, đảm bảo các trường cần thiết luôn tồn tại
-            courtsData.push({ 
-              id: doc.id, 
-              ...data,
-              name: data.name || 'Chưa có tên',
-              address: data.address || 'Chưa có địa chỉ',
-              price: data.price || 0,
-              sport: data.sport || 'Không xác định',
-              facilities: Array.isArray(data.facilities) ? data.facilities : [],
-              image: data.image || 'https://images.unsplash.com/photo-1459865264687-595d652de67e?q=80&w=800&auto=format&fit=crop',
-              rating: data.rating || 0
-            });
-          });
-          
-          console.log('Tổng số sân tìm thấy:', courtsData.length);
-          
-          // Nếu không có dữ liệu từ Firestore, sử dụng dữ liệu demo
-          if (courtsData.length === 0) {
-            console.log('Không tìm thấy dữ liệu từ Firestore, sử dụng dữ liệu demo');
-            setCourts(DEMO_COURTS);
-            setFilteredCourts(DEMO_COURTS);
-            setError('Không tìm thấy dữ liệu sân thật, hiển thị dữ liệu demo.');
-          } else {
-            console.log('Đã tìm thấy', courtsData.length, 'sân từ Firestore');
-            setCourts(courtsData);
-            setFilteredCourts(courtsData);
-            setError('');
-          }
-        } catch (firestoreError) {
-          console.error('Lỗi khi truy vấn Firestore:', firestoreError);
-          console.error('Chi tiết lỗi Firestore:', firestoreError.code, firestoreError.message);
-          setError('Lỗi kết nối Firestore. Hiển thị dữ liệu demo.');
+        console.log('Tổng số sân tìm thấy:', courtsData.length);
+        
+        // Nếu không có dữ liệu từ API/Firebase, sử dụng dữ liệu demo
+        if (courtsData.length === 0) {
+          console.log('Không tìm thấy dữ liệu, sử dụng dữ liệu demo');
           setCourts(DEMO_COURTS);
           setFilteredCourts(DEMO_COURTS);
+          setError('Không tìm thấy dữ liệu sân thật, hiển thị dữ liệu demo.');
+        } else {
+          console.log('Đã tìm thấy', courtsData.length, 'sân');
+          setCourts(courtsData);
+          setFilteredCourts(courtsData);
+          setError('');
         }
-        
       } catch (error) {
-        console.error('Lỗi truy vấn Firestore:', error);
+        console.error('Lỗi truy vấn:', error);
         console.error('Chi tiết lỗi:', error.code, error.message);
         setError('Không thể tải dữ liệu sân. Vui lòng thử lại sau.');
         // Sử dụng dữ liệu demo khi có lỗi
@@ -726,18 +692,51 @@ const SearchCourts = () => {
                   >
                     <CardMedia
                       component="img"
-                      height="200"
+                      height="180"
                       image={court.image}
                       alt={court.name}
                       sx={{ objectFit: 'cover' }}
                     />
-                    <CardContent sx={{ flexGrow: 1 }}>
-                      <Typography variant="h6" component="div" gutterBottom>
+                    <CardContent sx={{ 
+                      flexGrow: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      height: '200px',
+                      padding: 2,
+                      overflow: 'hidden'
+                    }}>
+                      <Typography 
+                        variant="h6" 
+                        component="div" 
+                        gutterBottom
+                        sx={{
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          marginBottom: 1,
+                          wordBreak: 'break-word',
+                          hyphens: 'auto'
+                        }}
+                      >
                         {court.name}
                       </Typography>
-                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                        <LocationOnIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} />
-                        <Typography variant="body2" color="text.secondary">
+                      <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 1 }}>
+                        <LocationOnIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary', flexShrink: 0, mt: 0.3 }} />
+                        <Typography 
+                          variant="body2" 
+                          color="text.secondary"
+                          sx={{
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            lineHeight: '1.3em',
+                            wordBreak: 'break-word'
+                          }}
+                        >
                           {court.address}
                           {useLocation && court.distance && court.distance !== Infinity && (
                             <span> ({court.distance.toFixed(1)} km)</span>
@@ -745,30 +744,34 @@ const SearchCourts = () => {
                         </Typography>
                       </Box>
                       <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                        <SportsIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} />
-                        <Typography variant="body2" color="text.secondary">
+                        <SportsIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary', flexShrink: 0 }} />
+                        <Typography variant="body2" color="text.secondary" noWrap>
                           {court.sport || "Không xác định"}
                         </Typography>
                       </Box>
                       <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                        <StarIcon fontSize="small" sx={{ mr: 1, color: 'warning.main' }} />
-                        <Typography variant="body2" component="span">
+                        <StarIcon fontSize="small" sx={{ mr: 1, color: 'warning.main', flexShrink: 0 }} />
+                        <Typography variant="body2" component="span" noWrap>
                           {court.rating || "Chưa có đánh giá"}
                         </Typography>
                       </Box>
                       {court.openTime && court.closeTime && (
-                        <Typography variant="body2" color="text.secondary">
-                          Giờ mở cửa: {court.openTime} - {court.closeTime}
-                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                          <AccessTimeIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary', flexShrink: 0 }} />
+                          <Typography variant="body2" color="text.secondary" noWrap>
+                            {court.openTime} - {court.closeTime}
+                          </Typography>
+                        </Box>
                       )}
                     </CardContent>
-                    <CardActions sx={{ justifyContent: 'space-between', p: 2 }}>
+                    <CardActions sx={{ justifyContent: 'space-between', p: 2, pt: 0 }}>
                       <Typography variant="body1" fontWeight="bold">
                         {formatPrice(court.price)}
                       </Typography>
                       <Button 
                         variant="contained" 
                         size="small"
+                        color="primary"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleCourtClick(court.id);
