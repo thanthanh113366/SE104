@@ -5,6 +5,9 @@ const { Court, Booking } = require('../models');
 const { authenticate } = require('../middleware/auth');
 const courtController = require('../controllers/courtController');
 
+// Route public lấy danh sách booking của sân
+router.get('/public/courts/:id/bookings', courtController.getPublicCourtBookings);
+
 // Routes cho owner (phải đặt TRƯỚC routes với id params)
 router.get('/owner', authenticate, (req, res) => {
   Court.findByOwnerId(req.user.uid)
@@ -26,6 +29,9 @@ router.delete('/:id', authenticate, courtController.deleteCourt);
 // Subroutes
 router.get('/:id/schedule', courtController.getCourtSchedule);
 router.get('/:id/reviews', courtController.getCourtReviews);
+
+// Route public lấy các slot đã được đặt
+router.get('/:id/booked-slots', courtController.getBookedSlots);
 
 router.get('/:id/bookings', authenticate, (req, res) => {
   Court.findById(req.params.id)

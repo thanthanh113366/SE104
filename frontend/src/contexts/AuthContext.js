@@ -56,103 +56,55 @@ export function AuthProvider({ children }) {
   // Đăng nhập với email và password
   const login = async (email, password, remember = false) => {
     try {
-      // Lưu giá trị remember me
       setRememberMe(remember);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      // Lưu token vào localStorage/sessionStorage
+      const token = await userCredential.user.getIdToken();
+      if (remember) {
+        localStorage.setItem('token', token);
+      } else {
+        sessionStorage.setItem('token', token);
+      }
       
-      try {
-        // Thử đăng nhập trực tiếp
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        
-        // Nếu đăng nhập thành công, tìm thông tin user trong Firestore
-        const userRef = doc(db, "users", userCredential.user.uid);
-        const userDoc = await getDoc(userRef);
-        
-        // Nếu user không có trong Firestore, tạo mới
-        if (!userDoc.exists()) {
-          await setDoc(userRef, {
-            uid: userCredential.user.uid,
-            email: userCredential.user.email,
-            displayName: userCredential.user.displayName || email.split('@')[0],
-            createdAt: new Date().toISOString(),
-            role: null,
-            photoURL: userCredential.user.photoURL || null,
-            status: 'active',
-            failedLoginAttempts: 0,
-            lastFailedLogin: null,
-            lockedUntil: null
-          });
-          return userCredential.user;
-        }
-        
-        // Kiểm tra trạng thái người dùng
-        const userData = userDoc.data();
-        
-        // Kiểm tra tài khoản bị khóa
-        if (userData.status === 'inactive') {
-          // Đăng xuất và báo lỗi
-          await signOut(auth);
-          throw new Error("Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị viên.");
-        }
-        
-        // Cập nhật số lần đăng nhập sai về 0
-        await updateDoc(userRef, {
+      // Nếu đăng nhập thành công, tìm thông tin user trong Firestore
+      const userRef = doc(db, "users", userCredential.user.uid);
+      const userDoc = await getDoc(userRef);
+      
+      // Nếu user không có trong Firestore, tạo mới
+      if (!userDoc.exists()) {
+        await setDoc(userRef, {
+          uid: userCredential.user.uid,
+          email: userCredential.user.email,
+          displayName: userCredential.user.displayName || email.split('@')[0],
+          createdAt: new Date().toISOString(),
+          role: null,
+          photoURL: userCredential.user.photoURL || null,
+          status: 'active',
           failedLoginAttempts: 0,
           lastFailedLogin: null,
           lockedUntil: null
         });
-        
         return userCredential.user;
-      } catch (authError) {
-        // Nếu lỗi là do đăng nhập không thành công
-        if (authError.code === 'auth/user-not-found' || 
-            authError.code === 'auth/wrong-password' ||
-            authError.code === 'auth/invalid-credential') {
-          // Thử tìm user bằng email (dùng trong trường hợp tăng số đếm đăng nhập sai)
-          const userQuery = await getUserByEmail(email);
-          
-          if (userQuery) {
-            // Kiểm tra tài khoản bị khóa
-            if (userQuery.status === 'inactive') {
-              throw new Error("Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị viên.");
-            }
-            
-            // Kiểm tra tài khoản bị tạm khóa do đăng nhập sai nhiều lần
-            if (userQuery.lockedUntil && Timestamp.now().seconds < userQuery.lockedUntil.seconds) {
-              const remainingMinutes = Math.ceil((userQuery.lockedUntil.seconds - Timestamp.now().seconds) / 60);
-              throw new Error(`Tài khoản tạm khóa do nhập sai mật khẩu nhiều lần. Vui lòng thử lại sau ${remainingMinutes} phút.`);
-            }
-          
-            // Đăng nhập thất bại, tăng số lần đăng nhập sai
-            const userRef = doc(db, "users", userQuery.id);
-            const updatedAttempts = (userQuery.failedLoginAttempts || 0) + 1;
-            
-            // Nếu đăng nhập sai 10 lần, khóa tài khoản 30 phút
-            if (updatedAttempts >= 10) {
-              const lockedUntil = new Date();
-              lockedUntil.setMinutes(lockedUntil.getMinutes() + 30); // Khóa 30 phút
-              
-              await updateDoc(userRef, {
-                failedLoginAttempts: updatedAttempts,
-                lastFailedLogin: Timestamp.now(),
-                lockedUntil: Timestamp.fromDate(lockedUntil)
-              });
-              
-              throw new Error("Tài khoản tạm khóa 30 phút do nhập sai mật khẩu 10 lần.");
-            } else {
-              await updateDoc(userRef, {
-                failedLoginAttempts: updatedAttempts,
-                lastFailedLogin: Timestamp.now()
-              });
-            }
-          }
-          
-          // Trả về lỗi đăng nhập
-          throw new Error("Sai thông tin đăng nhập!");
-        }
-        
-        // Các lỗi khác từ Firebase Auth
-        throw authError;
       }
+      
+      // Kiểm tra trạng thái người dùng
+      const userData = userDoc.data();
+      
+      // Kiểm tra tài khoản bị khóa
+      if (userData.status === 'inactive') {
+        // Đăng xuất và báo lỗi
+        await signOut(auth);
+        throw new Error("Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị viên.");
+      }
+      
+      // Cập nhật số lần đăng nhập sai về 0
+      await updateDoc(userRef, {
+        failedLoginAttempts: 0,
+        lastFailedLogin: null,
+        lockedUntil: null
+      });
+      
+      return userCredential.user;
     } catch (error) {
       console.error("Error logging in:", error);
       throw error;
@@ -208,6 +160,13 @@ export function AuthProvider({ children }) {
       setRememberMe(remember);
       const result = await signInWithPopup(auth, googleProvider);
       const user = result.user;
+      // Lưu token vào localStorage/sessionStorage
+      const token = await user.getIdToken();
+      if (remember) {
+        localStorage.setItem('token', token);
+      } else {
+        sessionStorage.setItem('token', token);
+      }
       
       // Kiểm tra xem người dùng đã tồn tại trong Firestore chưa
       const userDoc = await getDoc(doc(db, "users", user.uid));

@@ -1,5 +1,7 @@
 const { Booking, Court, User } = require('../models');
 const { validationResult } = require('express-validator');
+const admin = require('firebase-admin');
+const db = admin.firestore();
 
 /**
  * @desc    Tạo đặt sân mới
@@ -35,10 +37,23 @@ const createBooking = async (req, res) => {
       return res.status(400).json({ message: 'Thời gian này đã được đặt' });
     }
 
+    // Kiểm tra xác thực user
+    if (!req.user || !req.user.uid) {
+      return res.status(401).json({ message: 'Không xác định được người dùng. Vui lòng đăng nhập lại.' });
+    }
+
+    // Lấy thông tin user
+    const user = await User.findById(req.user.uid);
+
     // Tạo booking mới
     const booking = new Booking({
       courtId,
       userId: req.user.uid,
+      ownerId: court.ownerId,
+      userName: user?.displayName || user?.email || '',
+      userPhone: user?.phoneNumber || '',
+      userEmail: user?.email || '',
+      courtName: court.name || '',
       date,
       startTime,
       endTime,
@@ -247,31 +262,69 @@ const cancelBooking = async (req, res) => {
 const getCourtBookings = async (req, res) => {
   try {
     const { page = 1, limit = 10, status, date } = req.query;
-    const query = { courtId: req.params.courtId };
+    const courtId = req.params.courtId;
+
+    // Sử dụng Firebase Firestore
+    const bookingsRef = db.collection('bookings');
+    let query = bookingsRef.where('courtId', '==', courtId);
     
     if (status) {
-      query.status = status;
+      query = query.where('status', '==', status);
     }
     if (date) {
-      query.date = date;
+      // Chuyển đổi date string thành Date object nếu cần
+      const queryDate = new Date(date);
+      query = query.where('date', '==', queryDate);
     }
 
-    const bookings = await Booking.find(query)
-      .skip((page - 1) * limit)
-      .limit(Number(limit))
-      .sort({ createdAt: -1 });
+    // Thêm sắp xếp
+    query = query.orderBy('createdAt', 'desc');
 
-    const total = await Booking.countDocuments(query);
+    // Thực hiện query
+    const snapshot = await query.get();
+    
+    // Chuyển đổi dữ liệu và kiểm tra thời gian pending
+    const bookings = [];
+    const now = new Date();
+    
+    snapshot.forEach(doc => {
+      const booking = {
+        id: doc.id,
+        ...doc.data()
+      };
+
+      // Chuyển đổi Timestamp thành Date nếu cần
+      if (booking.date && booking.date._seconds) {
+        booking.date = new Date(booking.date._seconds * 1000);
+      }
+      
+      // Tính thời gian đã trôi qua kể từ khi tạo booking
+      const createdAt = booking.createdAt instanceof Date ? booking.createdAt : 
+                       booking.createdAt._seconds ? new Date(booking.createdAt._seconds * 1000) : 
+                       new Date(booking.createdAt);
+      
+      const timeDiff = (now - createdAt) / 1000 / 60; // Chuyển sang phút
+
+      // Thêm trường để frontend biết booking có đang trong thời gian pending 5 phút không
+      booking.isWithinPendingWindow = booking.status === 'pending' && timeDiff <= 5;
+      
+      bookings.push(booking);
+    });
+
+    // Phân trang thủ công vì Firestore không hỗ trợ skip
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + Number(limit);
+    const paginatedBookings = bookings.slice(startIndex, endIndex);
 
     res.json({
-      bookings,
+      bookings: paginatedBookings,
       currentPage: Number(page),
-      totalPages: Math.ceil(total / limit),
-      totalBookings: total
+      totalPages: Math.ceil(bookings.length / limit),
+      totalBookings: bookings.length
     });
   } catch (error) {
     console.error('Lỗi lấy danh sách đặt sân:', error);
-    res.status(500).json({ message: 'Lỗi server' });
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
   }
 };
 

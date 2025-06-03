@@ -19,7 +19,25 @@ export const transformCourtData = (court) => {
     // Đảm bảo các trường bắt buộc
     name: court.name || 'Chưa có tên',
     address: court.address || 'Chưa có địa chỉ',
+    description: court.description || 'Chưa có mô tả',
     price: court.price || 0,
+    sport: court.sport || 'Không xác định',
+    
+    // Đảm bảo giờ mở cửa/đóng cửa
+    openTime: court.openTime || '07:00',
+    closeTime: court.closeTime || '22:00',
+    
+    // Đảm bảo facilities là mảng
+    facilities: Array.isArray(court.facilities) ? court.facilities : [],
+    
+    // Đảm bảo owner có giá trị mặc định
+    owner: court.owner || { name: 'Chưa có thông tin', phone: 'Chưa có thông tin' },
+    
+    // Đảm bảo reviews là mảng
+    reviews: Array.isArray(court.reviews) ? court.reviews : [],
+    
+    // Đảm bảo có hình ảnh mặc định
+    image: court.image || 'https://images.unsplash.com/photo-1459865264687-595d652de67e?w=800',
     
     // Đảm bảo amenities là mảng
     amenities: Array.isArray(court.amenities) ? court.amenities : [],
@@ -29,6 +47,9 @@ export const transformCourtData = (court) => {
     
     // Tính toán giá hiển thị (có thể thêm logic giảm giá ở đây)
     displayPrice: court.price?.toLocaleString('vi-VN') + ' đ/giờ' || 'Liên hệ để biết giá',
+    
+    // Đảm bảo rating có giá trị
+    rating: court.rating || 0,
     
     // Trạng thái sân
     status: court.status || 'active'

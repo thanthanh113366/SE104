@@ -165,7 +165,7 @@ const CourtBookings = () => {
             console.log(`ownerId: "${data.ownerId || 'không có'}"`);
             console.log(`courtId: "${data.courtId || 'không có'}"`);
             console.log(`userId: "${data.userId || 'không có'}"`);
-            console.log(`Khách hàng: ${data.customerName || 'không có'}`);
+            console.log(`Khách hàng: ${data.userName || 'không có'}`);
             
             // Check if owner ID matches
             if (data.ownerId === currentUser.uid) {
@@ -213,7 +213,7 @@ const CourtBookings = () => {
         // Thu thập dữ liệu booking từ kết quả tìm kiếm
         ownerBookingsSnapshot.forEach(doc => {
           const data = doc.data();
-          console.log(`Đã tìm thấy booking ID: ${doc.id}, Khách hàng: ${data.customerName}`);
+          console.log(`Đã tìm thấy booking ID: ${doc.id}, Khách hàng: ${data.userName}`);
           bookingsData.push({ id: doc.id, ...data });
         });
       } catch (err) {
@@ -239,7 +239,7 @@ const CourtBookings = () => {
             // Thu thập dữ liệu booking từ kết quả tìm kiếm
             courtBookingsSnapshot.forEach(doc => {
               const data = doc.data();
-              console.log(`Đã tìm thấy booking ID: ${doc.id}, Khách hàng: ${data.customerName}`);
+              console.log(`Đã tìm thấy booking ID: ${doc.id}, Khách hàng: ${data.userName}`);
               
               // Kiểm tra xem booking đã có trong mảng kết quả chưa
               if (!bookingsData.some(b => b.id === doc.id)) {
@@ -321,9 +321,9 @@ const CourtBookings = () => {
             id: data.id,
             courtId: data.courtId || '',
             courtName: data.courtName || 'Không có tên',
-            customerName: data.customerName || 'Không rõ',
-            customerPhone: data.customerPhone || 'Không rõ',
-            customerEmail: data.customerEmail || 'Không rõ',
+            customerName: data.userName || 'Không rõ',
+            customerPhone: data.userPhone || 'Không rõ',
+            customerEmail: data.userEmail || 'Không rõ',
             date: formattedDate,
             startTime: data.startTime || '',
             endTime: data.endTime || '',
@@ -343,7 +343,7 @@ const CourtBookings = () => {
           return {
             id: data.id || 'unknown',
             courtName: data.courtName || 'Lỗi định dạng',
-            customerName: data.customerName || 'Không rõ',
+            customerName: data.userName || 'Không rõ',
             date: 'Không xác định',
             time: 'Không xác định',
             status: 'pending',

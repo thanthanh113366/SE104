@@ -12,7 +12,7 @@ class User {
    * @param {Object} data - Dữ liệu người dùng
    */
   constructor(data) {
-    this.id = data.id || null;
+    this._id = data._id || data.id || null;
     this.email = data.email || '';
     this.displayName = data.displayName || '';
     this.phoneNumber = data.phoneNumber || '';
@@ -25,10 +25,11 @@ class User {
   }
 
   /**
-   * Tạo/Cập nhật người dùng trong Firestore
+   * Tạo/Cập nhật người dùng trong Firestore với ID là Firebase UID
+   * @param {string} uid - Firebase UID
    * @returns {Promise<string>} - ID của người dùng
    */
-  async save() {
+  async save(uid = null) {
     try {
       const userData = {
         email: this.email,
@@ -40,16 +41,23 @@ class User {
         updatedAt: new Date()
       };
 
-      if (this.id) {
-        // Cập nhật người dùng
-        await getCollection(userCollection).doc(this.id).update(userData);
-        return this.id;
+      const userIdToUse = uid || this._id;
+      
+      if (userIdToUse) {
+        // Cập nhật hoặc tạo với ID cụ thể (Firebase UID)
+        await getCollection(userCollection).doc(userIdToUse).set({
+          ...userData,
+          createdAt: this.createdAt || new Date(),
+          status: this.status || 'active'
+        }, { merge: true });
+        this._id = userIdToUse;
+        return userIdToUse;
       } else {
-        // Tạo người dùng mới
+        // Tạo người dùng mới với auto-generated ID
         userData.createdAt = new Date();
         userData.status = 'active';
         const docRef = await getCollection(userCollection).add(userData);
-        this.id = docRef.id;
+        this._id = docRef.id;
         return docRef.id;
       }
     } catch (error) {
@@ -59,8 +67,8 @@ class User {
   }
 
   /**
-   * Tìm người dùng theo ID
-   * @param {string} userId - ID của người dùng
+   * Tìm người dùng theo ID (Firebase UID)
+   * @param {string} userId - ID của người dùng (Firebase UID)
    * @returns {Promise<User|null>} - Đối tượng User hoặc null nếu không tìm thấy
    */
   static async findById(userId) {
@@ -70,7 +78,7 @@ class User {
         return null;
       }
       const userData = doc.data();
-      return new User({ id: doc.id, ...userData });
+      return new User({ _id: doc.id, ...userData });
     } catch (error) {
       console.error('Lỗi khi tìm người dùng theo ID:', error);
       throw error;
@@ -94,7 +102,7 @@ class User {
       }
 
       const doc = snapshot.docs[0];
-      return new User({ id: doc.id, ...doc.data() });
+      return new User({ _id: doc.id, ...doc.data() });
     } catch (error) {
       console.error('Lỗi khi tìm người dùng theo email:', error);
       throw error;
@@ -112,7 +120,7 @@ class User {
         .where('role', '==', role)
         .get();
 
-      return snapshot.docs.map(doc => new User({ id: doc.id, ...doc.data() }));
+      return snapshot.docs.map(doc => new User({ _id: doc.id, ...doc.data() }));
     } catch (error) {
       console.error('Lỗi khi tìm người dùng theo vai trò:', error);
       throw error;
@@ -126,7 +134,7 @@ class User {
   static async findAll() {
     try {
       const snapshot = await getCollection(userCollection).get();
-      return snapshot.docs.map(doc => new User({ id: doc.id, ...doc.data() }));
+      return snapshot.docs.map(doc => new User({ _id: doc.id, ...doc.data() }));
     } catch (error) {
       console.error('Lỗi khi lấy tất cả người dùng:', error);
       throw error;

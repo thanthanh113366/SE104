@@ -125,6 +125,42 @@ const UserServiceWrapper = {
         throw error;
       }
     }
+  },
+
+  // Đăng ký làm chủ sân
+  registerAsOwner: async (userId, ownerData) => {
+    if (USE_BACKEND_API) {
+      try {
+        const response = await api.post('/users/register-owner', ownerData);
+        return transformUserData(response.data.user);
+      } catch (error) {
+        console.error('Lỗi khi gọi API registerAsOwner:', error);
+        throw error.response?.data || error.message;
+      }
+    } else {
+      try {
+        const userRef = doc(db, 'users', userId);
+        const updateData = {
+          role: 'owner',
+          ownerProfile: {
+            ...ownerData,
+            status: 'pending',
+            createdAt: new Date()
+          },
+          updatedAt: new Date()
+        };
+        
+        await updateDoc(userRef, updateData);
+        
+        // Lấy dữ liệu đã cập nhật
+        const updatedDoc = await getDoc(userRef);
+        
+        return transformUserData({ id: updatedDoc.id, ...updatedDoc.data() });
+      } catch (error) {
+        console.error('Lỗi khi truy cập Firebase trực tiếp:', error);
+        throw error;
+      }
+    }
   }
 };
 

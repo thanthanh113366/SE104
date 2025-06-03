@@ -198,6 +198,38 @@ const CourtServiceWrapper = {
         throw error;
       }
     }
+  },
+
+  getBookedSlots: async (courtId, date) => {
+    if (USE_BACKEND_API) {
+      try {
+        const response = await api.get(`/courts/${courtId}/booked-slots`, { params: { date } });
+        return response.data.slots;
+      } catch (error) {
+        console.error('Lỗi khi gọi API getBookedSlots:', error);
+        throw error.response?.data || error.message;
+      }
+    } else {
+      // Firebase: lấy booking của sân theo ngày
+      try {
+        const bookingsRef = collection(db, 'bookings');
+        const q = query(bookingsRef, where('courtId', '==', courtId), where('date', '==', date));
+        const querySnapshot = await getDocs(q);
+        const slots = [];
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          slots.push({
+            startTime: data.startTime,
+            endTime: data.endTime,
+            status: data.status
+          });
+        });
+        return slots;
+      } catch (error) {
+        console.error('Lỗi khi truy cập Firebase trực tiếp:', error);
+        throw error;
+      }
+    }
   }
 };
 

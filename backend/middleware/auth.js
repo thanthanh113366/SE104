@@ -18,13 +18,69 @@ const authenticate = async (req, res, next) => {
 
     const token = authHeader.split(' ')[1];
 
-    // Xác thực token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // Xác thực token bằng Firebase Admin SDK
+    const decoded = await admin.auth().verifyIdToken(token);
+    console.log('Token decoded:', { uid: decoded.uid, email: decoded.email, name: decoded.name });
 
     // Kiểm tra user tồn tại
-    const user = await User.findById(decoded.uid);
+    let user = await User.findById(decoded.uid);
+    console.log('User found in database:', user ? {
+      uid: user._id,
+      email: user.email,
+      displayName: user.displayName,
+      phoneNumber: user.phoneNumber
+    } : 'null');
+
     if (!user) {
-      return res.status(401).json({ message: 'Người dùng không tồn tại' });
+      // Lấy thông tin đầy đủ từ Firebase Auth
+      const firebaseUser = await admin.auth().getUser(decoded.uid);
+      
+      console.log('Tạo user mới với thông tin đầy đủ:', {
+        uid: decoded.uid,
+        email: decoded.email,
+        name: decoded.name || firebaseUser.displayName,
+        phone: firebaseUser.phoneNumber
+      });
+      
+      // Tự động tạo user với thông tin đầy đủ từ Firebase
+      user = new User({
+        _id: decoded.uid,
+        email: decoded.email,
+        displayName: decoded.name || firebaseUser.displayName || decoded.email.split('@')[0],
+        phoneNumber: firebaseUser.phoneNumber || '',
+        photoURL: firebaseUser.photoURL || '',
+        role: 'renter' // Mặc định là renter, có thể thay đổi sau
+      });
+      await user.save(decoded.uid);
+      console.log('User created successfully');
+    } else {
+      // Kiểm tra và cập nhật thông tin nếu thiếu
+      let needUpdate = false;
+      const firebaseUser = await admin.auth().getUser(decoded.uid);
+      
+      if (!user.displayName || user.displayName === user.email) {
+        user.displayName = decoded.name || firebaseUser.displayName || decoded.email.split('@')[0];
+        needUpdate = true;
+      }
+      
+      if (!user.phoneNumber && firebaseUser.phoneNumber) {
+        user.phoneNumber = firebaseUser.phoneNumber;
+        needUpdate = true;
+      }
+      
+      if (!user.photoURL && firebaseUser.photoURL) {
+        user.photoURL = firebaseUser.photoURL;
+        needUpdate = true;
+      }
+      
+      if (needUpdate) {
+        console.log('Updating user info:', {
+          uid: user._id,
+          displayName: user.displayName,
+          phoneNumber: user.phoneNumber
+        });
+        await user.save(decoded.uid);
+      }
     }
 
     // Kiểm tra user có bị khóa không
@@ -36,12 +92,15 @@ const authenticate = async (req, res, next) => {
     req.user = {
       uid: user._id,
       email: user.email,
-      role: user.role
+      displayName: user.displayName,
+      role: user.role,
+      phoneNumber: user.phoneNumber
     };
 
+    console.log('User authenticated:', req.user);
     next();
   } catch (error) {
-    if (error.name === 'JsonWebTokenError') {
+    if (error.code === 'auth/argument-error' || error.code === 'auth/id-token-expired' || error.code === 'auth/invalid-id-token') {
       return res.status(401).json({ message: 'Token không hợp lệ' });
     }
     if (error.name === 'TokenExpiredError') {

@@ -192,6 +192,8 @@ class Court {
         query = query.limit(options.limit);
       }
 
+      // Thêm log options trước khi get
+      console.log('Query Firestore với options:', options);
       const snapshot = await query.get();
       return snapshot.docs.map(doc => new Court({ id: doc.id, ...doc.data() }));
     } catch (error) {
@@ -317,6 +319,26 @@ class Court {
       console.error('Lỗi khi cập nhật trạng thái sân:', error);
       throw error;
     }
+  }
+
+  async checkAvailability(date, startTime, endTime) {
+    // Lấy tất cả booking của sân này trong ngày đó
+    const bookingsRef = getCollection('bookings');
+    const snapshot = await bookingsRef
+      .where('courtId', '==', this.id)
+      .where('date', '==', date)
+      .get();
+
+    for (const doc of snapshot.docs) {
+      const booking = doc.data();
+      // Nếu thời gian đặt mới giao với thời gian đã đặt
+      if (
+        !(endTime <= booking.startTime || startTime >= booking.endTime)
+      ) {
+        return false; // Đã có booking trùng
+      }
+    }
+    return true; // Không trùng, có thể đặt
   }
 }
 

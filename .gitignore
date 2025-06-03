@@ -17,6 +17,12 @@
 /frontend/build
 /backend/dist
 
+# Firebase sensitive files
+**/serviceAccountKey.json
+/backend/config/serviceAccountKey.json
+/frontend/src/firebase.config.js
+/backend/config/firebase.config.js
+
 # misc
 .DS_Store
 .env
@@ -56,4 +62,30 @@ ui-debug.log
 **/firebase.config.js
 
 # VSCode
-.vscode/ 
+.vscode/
+
+# Package manager lock files (có thể loại bỏ nếu cần)
+# package-lock.json
+# yarn.lock
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates 

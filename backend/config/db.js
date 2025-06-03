@@ -1,4 +1,4 @@
-const { firestore } = require('./firebaseAdmin');
+const { db, getCollection } = require('./firebaseAdmin');
 
 /**
  * Kết nối đến Firestore Database
@@ -7,24 +7,15 @@ const { firestore } = require('./firebaseAdmin');
 const connectFirestore = () => {
   try {
     console.log('Kết nối đến Firestore thành công');
-    return firestore;
+    return db;
   } catch (error) {
     console.error('Lỗi kết nối đến Firestore:', error);
     throw error;
   }
 };
 
-/**
- * Thực hiện truy vấn đến collection trong Firestore
- * @param {string} collectionName - Tên collection
- * @returns {Object} - Đối tượng tham chiếu đến collection
- */
-const getCollection = (collectionName) => {
-  return firestore.collection(collectionName);
-};
-
 module.exports = {
   connect: connectFirestore,
   getCollection,
-  db: firestore
+  db
 }; 

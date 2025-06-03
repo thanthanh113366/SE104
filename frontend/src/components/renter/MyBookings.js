@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Box, 
   Typography, 
@@ -20,7 +20,7 @@ import {
   DialogActions
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import { collection, query, where, getDocs, orderBy, doc, updateDoc, deleteDoc, Timestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, doc as firestoreDoc, updateDoc, deleteDoc, Timestamp, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -94,20 +94,7 @@ const MyBookings = () => {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
   
-  // Hàm làm mới dữ liệu
-  const handleRefresh = () => {
-    setRefreshing(true);
-    setError('');
-    fetchBookings();
-  };
-  
-  // Fetch bookings from Firestore/demo data
-  useEffect(() => {
-    fetchBookings();
-  }, [currentUser]);
-  
-  // Fetch bookings data
-  const fetchBookings = async () => {
+  const fetchBookings = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
@@ -122,12 +109,11 @@ const MyBookings = () => {
       
       console.log('Đang lấy dữ liệu booking của người dùng:', currentUser.uid);
       
-      // Lấy dữ liệu từ Firestore - sử dụng cả orderBy vì đã có index
+      // Lấy dữ liệu từ Firestore - không dùng orderBy để tránh yêu cầu index
       const bookingsRef = collection(db, 'bookings');
       const q = query(
         bookingsRef,
-        where('userId', '==', currentUser.uid),
-        orderBy('createdAt', 'desc')
+        where('userId', '==', currentUser.uid)
       );
       
       const querySnapshot = await getDocs(q);
@@ -135,11 +121,65 @@ const MyBookings = () => {
       
       console.log(`Tìm thấy ${querySnapshot.size} bookings từ Firestore với userId=${currentUser.uid}`);
       
-      // Thu thập dữ liệu booking
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        bookingsData.push({ id: doc.id, ...data });
+      // Thu thập dữ liệu booking và sắp xếp trên client side
+      const bookingsPromises = querySnapshot.docs.map(async (bookingDoc) => {
+        const data = bookingDoc.data();
+        console.log('Raw booking data:', data);
+        
+        // Lấy thông tin chi tiết của sân
+        try {
+          if (data.courtId) {
+            const courtRef = firestoreDoc(db, 'courts', data.courtId);
+            const courtDoc = await getDoc(courtRef);
+            
+            if (courtDoc.exists()) {
+              const courtData = courtDoc.data();
+              console.log('Court data:', courtData);
+              
+              // Gộp thông tin sân vào booking
+              data.courtName = courtData.name || 'Không có tên';
+              data.address = courtData.address || 'Không có địa chỉ';
+              data.sport = courtData.sport || 'Không xác định';
+              data.courtImage = courtData.images?.[0] || 'https://via.placeholder.com/300x200?text=No+Image';
+            } else {
+              console.log('Không tìm thấy thông tin sân:', data.courtId);
+              data.courtName = 'Sân không tồn tại';
+              data.address = 'Không có địa chỉ';
+              data.sport = 'Không xác định';
+            }
+          } else {
+            console.log('Booking không có courtId');
+            data.courtName = 'Thiếu thông tin sân';
+            data.address = 'Không có địa chỉ';
+            data.sport = 'Không xác định';
+          }
+        } catch (courtErr) {
+          console.error('Lỗi khi lấy thông tin sân:', courtErr);
+          data.courtName = 'Lỗi tải thông tin';
+          data.address = 'Không có địa chỉ';
+          data.sport = 'Không xác định';
+        }
+        
+        return { 
+          id: bookingDoc.id,
+          ...data,
+          courtName: data.courtName || 'Không có tên',
+          address: data.address || 'Không có địa chỉ',
+          sport: data.sport || 'Không xác định',
+          paymentMethod: data.paymentMethod || data.payment?.method || 'cash',
+          createdAt: data.createdAt || new Date()
+        };
       });
+
+      // Đợi tất cả promises hoàn thành
+      const resolvedBookings = await Promise.all(bookingsPromises);
+      
+      // Sắp xếp theo ngày trên client side
+      bookingsData.push(...resolvedBookings.sort((a, b) => {
+        const dateA = a.date instanceof Date ? a.date : new Date(a.date);
+        const dateB = b.date instanceof Date ? b.date : new Date(b.date);
+        return dateB - dateA;
+      }));
       
       // Nếu không có dữ liệu từ Firestore, sử dụng dữ liệu demo
       if (bookingsData.length === 0) {
@@ -168,7 +208,7 @@ const MyBookings = () => {
             // Kiểm tra định dạng thời gian
             const timeStr = booking.time || `${booking.startTime || '00:00'}-${booking.endTime || '00:00'}`;
             
-            return {
+            const processedBooking = {
               ...booking,
               date: formattedDate,
               time: timeStr,
@@ -178,8 +218,13 @@ const MyBookings = () => {
               sport: booking.sport || 'Không xác định',
               status: booking.status || 'upcoming',
               price: booking.totalPrice || 0,
-              courtImage: booking.courtImage || 'https://via.placeholder.com/300x200?text=No+Image'
+              courtImage: booking.courtImage || 'https://via.placeholder.com/300x200?text=No+Image',
+              paymentMethod: booking.paymentMethod || 'Không xác định'
             };
+            
+            console.log('Final processed booking:', processedBooking); // Log dữ liệu cuối cùng
+            return processedBooking;
+            
           } catch (err) {
             console.error('Lỗi khi xử lý booking:', err, booking);
             return {
@@ -187,24 +232,37 @@ const MyBookings = () => {
               date: new Date(),
               time: '00:00-00:00',
               courtName: booking.courtName || 'Lỗi định dạng',
-              status: booking.status || 'upcoming'
+              status: booking.status || 'upcoming',
+              sport: 'Không xác định',
+              address: 'Không có địa chỉ',
+              paymentMethod: 'Không xác định'
             };
           }
         });
         
+        console.log('Final bookings data:', processedBookings); // Log toàn bộ dữ liệu đã xử lý
         setBookings(processedBookings);
       }
     } catch (err) {
       console.error('Error fetching bookings:', err);
       setError(`Không thể tải dữ liệu đặt sân: ${err.message}`);
-      
-      // Sử dụng dữ liệu demo trong trường hợp lỗi
-      console.log('Sử dụng dữ liệu demo do lỗi Firestore');
       setBookings(DEMO_BOOKINGS);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
+  }, [currentUser]);
+  
+  // Fetch bookings from Firestore/demo data
+  useEffect(() => {
+    fetchBookings();
+  }, [fetchBookings]);
+  
+  // Hàm làm mới dữ liệu
+  const handleRefresh = () => {
+    setRefreshing(true);
+    setError('');
+    fetchBookings();
   };
   
   // Filter bookings based on selected tab
@@ -247,7 +305,7 @@ const MyBookings = () => {
       if (!selectedBooking) return;
       
       // Cập nhật trạng thái trong Firestore
-      const bookingRef = doc(db, 'bookings', selectedBooking.id);
+      const bookingRef = firestoreDoc(db, 'bookings', selectedBooking.id);
       await updateDoc(bookingRef, { 
         status: 'cancelled',
         updatedAt: new Date()
@@ -305,6 +363,40 @@ const MyBookings = () => {
     }
   };
   
+  // Thêm hàm format thời gian tạo booking
+  const formatCreatedAt = (timestamp) => {
+    try {
+      if (!timestamp) return 'Không xác định';
+      
+      let date;
+      if (timestamp instanceof Timestamp) {
+        date = timestamp.toDate();
+      } else if (timestamp.toDate && typeof timestamp.toDate === 'function') {
+        date = timestamp.toDate();
+      } else if (timestamp instanceof Date) {
+        date = timestamp;
+      } else if (typeof timestamp === 'string') {
+        date = new Date(timestamp);
+      } else if (typeof timestamp === 'number') {
+        date = new Date(timestamp);
+      } else {
+        return 'Không xác định';
+      }
+
+      return new Date(date).toLocaleString('vi-VN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
+    } catch (error) {
+      console.error('Lỗi khi format thời gian tạo:', error);
+      return 'Không xác định';
+    }
+  };
+  
   // Get status chip color and label
   const getStatusChip = (status) => {
     switch (status) {
@@ -325,13 +417,20 @@ const MyBookings = () => {
   
   // Get payment method label
   const getPaymentMethodLabel = (method) => {
-    switch (method) {
+    if (!method) return 'Không xác định';
+    
+    switch (method.toLowerCase()) {
       case 'cash':
         return 'Tiền mặt tại sân';
       case 'banking':
+      case 'bank':
         return 'Chuyển khoản ngân hàng';
       case 'momo':
         return 'Ví MoMo';
+      case 'vnpay':
+        return 'VNPay';
+      case 'zalopay':
+        return 'ZaloPay';
       default:
         return method;
     }
@@ -437,29 +536,32 @@ const MyBookings = () => {
                       </Box>
                       
                       <Grid container spacing={2}>
-                        <Grid item xs={12} sm={6}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                            <SportsIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} />
-                            <Typography variant="body2">{booking.sport}</Typography>
-                          </Box>
-                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                            <LocationOnIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} />
-                            <Typography variant="body2">{booking.address}</Typography>
-                          </Box>
-                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                            <PaidIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} />
-                            <Typography variant="body2">
-                              {formatPrice(booking.price || booking.totalPrice || 0)} - {getPaymentMethodLabel(booking.paymentMethod)}
+                        <Grid item xs={12}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                            <SportsIcon fontSize="small" sx={{ mr: 1, color: 'primary.main' }} />
+                            <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                              Môn thể thao: <span style={{ color: '#2196f3' }}>{booking.sport || 'Không xác định'}</span>
                             </Typography>
                           </Box>
+                          <Box sx={{ display: 'flex', alignItems: 'flex-start', mb: 2 }}>
+                            <LocationOnIcon fontSize="small" sx={{ mr: 1, color: 'primary.main', mt: 0.5 }} />
+                            <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                              Địa chỉ: <span style={{ color: '#2196f3' }}>{booking.address || 'Không có địa chỉ'}</span>
+                            </Typography>
+                          </Box>
+                          <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                            <PaidIcon fontSize="small" sx={{ mr: 1, color: 'primary.main' }} />
+                            <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                              Thanh toán: <span style={{ color: '#2196f3' }}>{getPaymentMethodLabel(booking.paymentMethod)}</span>
+                            </Typography>
+                          </Box>
+                          <Divider sx={{ my: 2 }} />
                         </Grid>
                         <Grid item xs={12} sm={6}>
                           <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                             <EventIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} />
                             <Typography variant="body2">
-                              Ngày: {typeof booking.date === 'object' && booking.date instanceof Date 
-                                ? formatDate(booking.date) 
-                                : 'Không xác định'}
+                              Ngày: {formatDate(booking.date)}
                             </Typography>
                           </Box>
                           <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
@@ -472,46 +574,41 @@ const MyBookings = () => {
                             </Typography>
                           )}
                         </Grid>
-                      </Grid>
-                      
-                      <Divider sx={{ my: 2 }} />
-                      
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <Box>
-                          <Typography variant="caption" color="text.secondary">
-                            Đặt vào: {new Date(booking.createdAt).toLocaleString('vi-VN')}
+                        <Grid item xs={12} sm={6}>
+                          <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <Button 
+                              variant="outlined" 
+                              sx={{ mr: 1 }}
+                              onClick={() => handleViewCourt(booking.courtId)}
+                            >
+                              Xem sân
+                            </Button>
+                            
+                            {booking.status === 'upcoming' && (
+                              <Button 
+                                variant="contained" 
+                                color="error"
+                                onClick={() => handleCancelBookingOpen(booking)}
+                              >
+                                Hủy đặt sân
+                              </Button>
+                            )}
+                            
+                            {booking.status === 'completed' && (
+                              <Button 
+                                variant="contained" 
+                                color="secondary"
+                                onClick={() => navigate('/renter/ratings')}
+                              >
+                                Đánh giá
+                              </Button>
+                            )}
+                          </Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, textAlign: 'right' }}>
+                            Đặt vào: {formatCreatedAt(booking.createdAt)}
                           </Typography>
-                        </Box>
-                        <Box>
-                          <Button 
-                            variant="outlined" 
-                            sx={{ mr: 1 }}
-                            onClick={() => handleViewCourt(booking.courtId)}
-                          >
-                            Xem sân
-                          </Button>
-                          
-                          {booking.status === 'upcoming' && (
-                            <Button 
-                              variant="contained" 
-                              color="error"
-                              onClick={() => handleCancelBookingOpen(booking)}
-                            >
-                              Hủy đặt sân
-                            </Button>
-                          )}
-                          
-                          {booking.status === 'completed' && (
-                            <Button 
-                              variant="contained" 
-                              color="secondary"
-                              onClick={() => navigate('/renter/ratings')}
-                            >
-                              Đánh giá
-                            </Button>
-                          )}
-                        </Box>
-                      </Box>
+                        </Grid>
+                      </Grid>
                     </CardContent>
                   </Grid>
                 </Grid>

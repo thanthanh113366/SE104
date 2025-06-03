@@ -16,6 +16,10 @@ class Booking {
     this.courtId = data.courtId || '';
     this.userId = data.userId || '';
     this.ownerId = data.ownerId || '';
+    this.userName = data.userName || ''; // Tên người đặt
+    this.userEmail = data.userEmail || ''; // Email người đặt
+    this.userPhone = data.userPhone || ''; // Số điện thoại người đặt
+    this.courtName = data.courtName || ''; // Tên sân
     this.date = data.date || new Date(); // Ngày đặt sân
     this.startTime = data.startTime || ''; // Thời gian bắt đầu (format: 'HH:MM')
     this.endTime = data.endTime || ''; // Thời gian kết thúc (format: 'HH:MM')
@@ -42,6 +46,10 @@ class Booking {
         courtId: this.courtId,
         userId: this.userId,
         ownerId: this.ownerId,
+        userName: this.userName,
+        userEmail: this.userEmail,
+        userPhone: this.userPhone,
+        courtName: this.courtName,
         date: this.date,
         startTime: this.startTime,
         endTime: this.endTime,

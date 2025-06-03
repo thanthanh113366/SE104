@@ -1,5 +1,6 @@
 const { Court, Review, Booking } = require('../models');
 const { validationResult } = require('express-validator');
+const { getCollection } = require('../config/db');
 
 /**
  * @desc    Lấy danh sách sân
@@ -20,42 +21,53 @@ const getCourts = async (req, res) => {
       rating
     } = req.query;
 
-    const query = {};
+    // Tạo options cho findAll
+    const options = {
+      limit: Number(limit),
+      page: Number(page),
+      type: type,
+      status: 'active'
+    };
     
-    // Thêm điều kiện tìm kiếm nếu có
+    if (priceMin) options.minPrice = Number(priceMin);
+    if (priceMax) options.maxPrice = Number(priceMax);
+    if (rating) options.minRating = Number(rating);
+    
+    // Thêm log options
+    console.log('Options truyền vào Court.findAll:', options);
+    const courts = await Court.findAll(options);
+    
+    // Nếu có search, lọc thêm trên kết quả
+    let filteredCourts = courts;
     if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { address: { $regex: search, $options: 'i' } }
-      ];
+      const searchLower = search.toLowerCase();
+      filteredCourts = courts.filter(court => 
+        court.name.toLowerCase().includes(searchLower) || 
+        (court.address && court.address.toLowerCase().includes(searchLower))
+      );
     }
-
-    if (city) query.city = city;
-    if (district) query.district = district;
-    if (type) query.type = type;
-    if (priceMin || priceMax) {
-      query.price = {};
-      if (priceMin) query.price.$gte = Number(priceMin);
-      if (priceMax) query.price.$lte = Number(priceMax);
+    
+    if (city) {
+      filteredCourts = filteredCourts.filter(court => 
+        court.address && court.address.city && court.address.city.toLowerCase() === city.toLowerCase()
+      );
     }
-    if (rating) query.rating = { $gte: Number(rating) };
-
-    const courts = await Court.find(query)
-      .skip((page - 1) * limit)
-      .limit(Number(limit))
-      .sort({ createdAt: -1 });
-
-    const total = await Court.countDocuments(query);
+    
+    if (district) {
+      filteredCourts = filteredCourts.filter(court => 
+        court.address && court.address.district && court.address.district.toLowerCase() === district.toLowerCase()
+      );
+    }
 
     res.json({
-      courts,
+      courts: filteredCourts,
       currentPage: Number(page),
-      totalPages: Math.ceil(total / limit),
-      totalCourts: total
+      totalPages: 1, // Tạm thời hardcode vì không dùng skip/limit
+      totalCourts: filteredCourts.length
     });
   } catch (error) {
     console.error('Lỗi lấy danh sách sân:', error);
-    res.status(500).json({ message: 'Lỗi server' });
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
   }
 };
 
@@ -279,28 +291,78 @@ const getCourtReviews = async (req, res) => {
 };
 
 /**
- * @desc    Lấy sân theo chủ sở hữu
+ * @desc    Lấy danh sách sân của một chủ sân
  * @route   GET /api/courts/owner/:ownerId
  * @access  Public
  */
 const getCourtsByOwner = async (req, res) => {
   try {
-    const { page = 1, limit = 10 } = req.query;
-    const courts = await Court.find({ ownerId: req.params.ownerId })
-      .skip((page - 1) * limit)
-      .limit(Number(limit))
-      .sort({ createdAt: -1 });
-
-    const total = await Court.countDocuments({ ownerId: req.params.ownerId });
-
+    const ownerId = req.params.ownerId;
+    
+    // Sử dụng findByOwnerId thay vì find
+    const courts = await Court.findByOwnerId(ownerId);
+    
     res.json({
       courts,
-      currentPage: Number(page),
-      totalPages: Math.ceil(total / limit),
-      totalCourts: total
+      totalCourts: courts.length
     });
   } catch (error) {
-    console.error('Lỗi lấy sân theo chủ sở hữu:', error);
+    console.error('Lỗi lấy danh sách sân của chủ sân:', error);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+};
+
+const getBookedSlots = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { date } = req.query;
+    const bookingsRef = getCollection('bookings');
+    const snapshot = await bookingsRef
+      .where('courtId', '==', id)
+      .where('date', '==', date)
+      .get();
+    const slots = snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        startTime: data.startTime,
+        endTime: data.endTime,
+        status: data.status
+      };
+    });
+    res.json({ slots });
+  } catch (error) {
+    console.error('Lỗi lấy booked slots:', error);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+};
+
+/**
+ * @desc    Lấy danh sách booking công khai của sân
+ * @route   GET /api/public/courts/:id/bookings
+ * @access  Public
+ */
+const getPublicCourtBookings = async (req, res) => {
+  try {
+    const court = await Court.findById(req.params.id);
+    if (!court) {
+      return res.status(404).json({ message: 'Không tìm thấy sân' });
+    }
+
+    const bookings = await Booking.findByCourtId(req.params.id);
+    
+    // Chỉ trả về các thông tin công khai
+    const publicBookings = bookings.map(booking => ({
+      id: booking.id,
+      courtId: booking.courtId,
+      date: booking.date,
+      startTime: booking.startTime,
+      endTime: booking.endTime,
+      status: booking.status
+    }));
+
+    res.json({ bookings: publicBookings });
+  } catch (error) {
+    console.error('Lỗi lấy danh sách booking công khai:', error);
     res.status(500).json({ message: 'Lỗi server' });
   }
 };
@@ -313,5 +375,7 @@ module.exports = {
   deleteCourt,
   getCourtSchedule,
   getCourtReviews,
-  getCourtsByOwner
+  getCourtsByOwner,
+  getBookedSlots,
+  getPublicCourtBookings
 }; 

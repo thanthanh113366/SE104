@@ -121,6 +121,8 @@ const CourtDetail = () => {
   const [note, setNote] = useState('');
   const [bookingLoading, setBookingLoading] = useState(false);
   const [existingBookings, setExistingBookings] = useState([]);
+  const [successDialogOpen, setSuccessDialogOpen] = useState(false);
+  const [bookingSuccess, setBookingSuccess] = useState(null);
   
   // Helper function để chuyển đổi Firestore timestamp sang Date nếu cần
   const convertFirestoreDate = (firestoreDate) => {
@@ -217,21 +219,21 @@ const CourtDetail = () => {
     const fetchExistingBookings = async () => {
       try {
         if (!court) return;
-        
         console.log('Đang lấy các lịch đặt sân hiện có cho sân:', courtId);
         
-        try {
-          const response = await BookingServiceWrapper.getCourtBookings(courtId);
+        const response = await BookingServiceWrapper.getCourtBookings(courtId);
+        if (response && response.bookings) {
+          console.log('Bookings từ server:', response.bookings);
           
-          if (response && response.bookings) {
-            console.log('Số lượng lịch đặt sân tìm thấy:', response.bookings.length);
-            setExistingBookings(response.bookings);
-          } else {
-            console.log('Không tìm thấy lịch đặt sân nào');
-            setExistingBookings([]);
-          }
-        } catch (fetchError) {
-          console.error('Lỗi khi lấy lịch đặt sân:', fetchError);
+          // Lọc booking cho ngày đã chọn
+          const bookingsForSelectedDate = response.bookings.filter(booking => {
+            if (!booking.date) return false;
+            return isSameDay(booking.date, selectedDate);
+          });
+          
+          console.log('Bookings cho ngày đã chọn:', bookingsForSelectedDate);
+          setExistingBookings(bookingsForSelectedDate);
+        } else {
           setExistingBookings([]);
         }
       } catch (error) {
@@ -241,7 +243,7 @@ const CourtDetail = () => {
     };
     
     fetchExistingBookings();
-  }, [court, courtId]);
+  }, [court, courtId, selectedDate]);
   
   // Tạo các khung giờ từ giờ mở cửa đến giờ đóng cửa
   const generateTimeSlots = () => {
@@ -254,7 +256,17 @@ const CourtDetail = () => {
     const openTime = openHour * 60 + openMinute;
     const closeTime = closeHour * 60 + closeMinute;
     
-    console.log("Existing bookings khi tạo time slots:", existingBookings);
+    // Lọc booking chỉ cho ngày đã chọn
+    const selectedDateStr = selectedDate.toISOString().split('T')[0];
+    const bookingsForSelectedDate = existingBookings.filter(booking => {
+      const bookingDate = booking.date;
+      if (!bookingDate) return false;
+      
+      const bookingDateStr = bookingDate.toISOString().split('T')[0];
+      return bookingDateStr === selectedDateStr;
+    });
+    
+    console.log(`Booking cho ngày ${selectedDateStr}:`, bookingsForSelectedDate);
     
     // Tạo các khung 1 giờ
     for (let time = openTime; time < closeTime; time += 60) {
@@ -276,35 +288,26 @@ const CourtDetail = () => {
           time: `${startTimeString}-${endTimeString}`,
           price: court.price,
           status: 'available',
-          bookingStatus: null
+          bookingStatus: null,
+          isWithinPendingWindow: false
         };
         
-        // Kiểm tra xem khung giờ này đã có người đặt chưa và trạng thái của đơn đặt sân
-        const bookingForThisSlot = existingBookings.find(booking => {
-          const matchesTimeSlot = 
-            (booking.startTime <= startTimeString && booking.endTime > startTimeString) || 
-            (booking.startTime < endTimeString && booking.endTime >= endTimeString) ||
-            (booking.startTime >= startTimeString && booking.endTime <= endTimeString);
-          
-          if (matchesTimeSlot) {
-            console.log(`Slot ${startTimeString}-${endTimeString} matches booking:`, booking);
-          }
-          
-          return matchesTimeSlot;
-        });
+        // Kiểm tra xem khung giờ này đã có người đặt chưa
+        const bookingForThisSlot = bookingsForSelectedDate.find(booking => 
+          booking.startTime === startTimeString && booking.endTime === endTimeString
+        );
         
         if (bookingForThisSlot) {
-          console.log(`Slot ${startTimeString}-${endTimeString} is booked. Status: ${bookingForThisSlot.status}`);
+          console.log(`Slot ${startTimeString}-${endTimeString} is booked with status:`, bookingForThisSlot.status);
           timeSlot.status = 'booked';
-          timeSlot.bookingStatus = bookingForThisSlot.status || 'pending';
-          timeSlot.bookingId = bookingForThisSlot.id;
+          timeSlot.bookingStatus = bookingForThisSlot.status;
+          timeSlot.isWithinPendingWindow = bookingForThisSlot.isWithinPendingWindow;
         }
         
         slots.push(timeSlot);
       }
     }
     
-    console.log("Generated time slots:", slots);
     return slots;
   };
   
@@ -332,42 +335,53 @@ const CourtDetail = () => {
       // Dữ liệu đặt sân
       const bookingData = {
         userId: currentUser.uid,
-        userName: userDetails?.name || currentUser.email,
+        userName: userDetails?.displayName || currentUser.email?.split('@')[0] || 'Người dùng',
+        userEmail: currentUser.email,
         userPhone: userDetails?.phone || 'Chưa cung cấp',
+        ownerId: court.ownerId,
         courtId: court.id,
         courtName: court.name,
+        sport: court.sport,
+        address: court.address,
         date: selectedDate,
-        startTime: selectedSlot.start,
-        endTime: selectedSlot.end,
+        startTime: selectedSlot.startTime,
+        endTime: selectedSlot.endTime,
+        time: `${selectedSlot.startTime}-${selectedSlot.endTime}`,
         price: selectedSlot.price,
+        totalPrice: Number(selectedSlot.price),
         paymentMethod,
         note,
         status: 'pending',
-        createdAt: new Date()
+        createdAt: new Date(),
+        updatedAt: new Date()
       };
 
       console.log('Đang tạo đơn đặt sân với dữ liệu:', bookingData);
 
       try {
-        // Sử dụng service wrapper thay vì Firestore trực tiếp
         const response = await BookingServiceWrapper.createBooking(courtId, bookingData);
-        
-        console.log('Đặt sân thành công, ID:', response.id);
-        alert('Đặt sân thành công! Chủ sân sẽ liên hệ với bạn để xác nhận.');
-        setBookingOpen(false);
-        // Làm mới danh sách đặt sân
-        const updatedBookings = await BookingServiceWrapper.getCourtBookings(courtId);
-        setExistingBookings(updatedBookings.bookings || []);
+        if (response && response.id) {
+          setBookingSuccess(bookingData);
+          setBookingOpen(false);
+          setSuccessDialogOpen(true);
+        } else {
+          throw new Error('Không nhận được booking mới từ server');
+        }
       } catch (bookingError) {
         console.error('Lỗi khi đặt sân:', bookingError);
-        alert('Đặt sân không thành công! Vui lòng thử lại sau.');
+        setError('Rất tiếc! Đã có lỗi xảy ra khi đặt sân. Vui lòng thử lại sau hoặc liên hệ hỗ trợ.');
       }
     } catch (error) {
       console.error('Lỗi khi đặt sân:', error);
-      alert('Đặt sân không thành công! Vui lòng thử lại sau.');
+      setError('Rất tiếc! Đã có lỗi xảy ra khi đặt sân. Vui lòng thử lại sau hoặc liên hệ hỗ trợ.');
     } finally {
       setBookingLoading(false);
     }
+  };
+  
+  const handleSuccessDialogClose = () => {
+    setSuccessDialogOpen(false);
+    window.location.reload();
   };
   
   // Format price to VND
@@ -513,29 +527,38 @@ const CourtDetail = () => {
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                 {timeSlots.map((slot) => {
                   // Xác định màu sắc và trạng thái hiển thị
-                  let statusColor, statusBgColor, statusText;
+                  let statusColor, statusBgColor, statusText, isDisabled;
                   
                   if (slot.status === 'booked') {
                     if (slot.bookingStatus === 'confirmed') {
-                      statusColor = '#d32f2f';
-                      statusBgColor = '#ffebee';
-                      statusText = 'Đã được đặt';
+                      statusColor = '#d32f2f'; // Đỏ đậm
+                      statusBgColor = '#ffebee'; // Đỏ nhạt
+                      statusText = 'Đã được xác nhận';
+                      isDisabled = true;
                     } else if (slot.bookingStatus === 'pending') {
-                      statusColor = '#ff9800';
-                      statusBgColor = '#fff3e0';
-                      statusText = 'Đang chờ xác nhận';
+                      if (slot.isWithinPendingWindow) {
+                        statusColor = '#ed6c02'; // Cam đậm
+                        statusBgColor = '#fff3e0'; // Cam nhạt
+                        statusText = 'Đang chờ xác nhận (5 phút)';
+                        isDisabled = true;
+                      } else {
+                        statusColor = '#9e9e9e'; // Xám
+                        statusBgColor = '#f5f5f5'; // Xám nhạt
+                        statusText = 'Đang chờ xác nhận';
+                        isDisabled = false;
+                      }
                     } else {
-                      statusColor = '#f44336';
-                      statusBgColor = '#ffebee';
-                      statusText = 'Đã đặt';
+                      statusColor = '#4caf50'; // Xanh lá
+                      statusBgColor = '#e8f5e9'; // Xanh lá nhạt
+                      statusText = 'Còn trống';
+                      isDisabled = false;
                     }
                   } else {
-                    statusColor = '#4caf50';
-                    statusBgColor = '#e8f5e9';
+                    statusColor = '#4caf50'; // Xanh lá
+                    statusBgColor = '#e8f5e9'; // Xanh lá nhạt
                     statusText = 'Còn trống';
+                    isDisabled = false;
                   }
-                  
-                  console.log(`Rendering slot ${slot.time} with status: ${slot.status}, bookingStatus: ${slot.bookingStatus}`);
                   
                   return (
                     <Box
@@ -550,15 +573,17 @@ const CourtDetail = () => {
                         borderRadius: 1,
                         display: 'flex',
                         flexDirection: 'column',
-                        cursor: slot.status === 'booked' ? 'default' : 'pointer',
+                        cursor: isDisabled ? 'not-allowed' : 'pointer',
+                        opacity: isDisabled ? 0.8 : 1,
+                        position: 'relative',
                         '&:hover': {
-                          backgroundColor: slot.status === 'booked' ? statusBgColor : '#f5f5f5',
+                          backgroundColor: isDisabled ? statusBgColor : '#f5f5f5',
                         },
                         mb: 1
                       }}
-                      onClick={() => slot.status === 'available' && handleBookingOpen(slot)}
+                      onClick={() => !isDisabled && handleBookingOpen(slot)}
                     >
-                      <Typography variant="body2">{slot.time}</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 'medium' }}>{slot.time}</Typography>
                       <Typography variant="caption" color="text.secondary">
                         {formatPrice(slot.price)}
                       </Typography>
@@ -568,9 +593,13 @@ const CourtDetail = () => {
                           py: 0.25, 
                           px: 1, 
                           borderRadius: 1, 
-                          fontSize: '0.7rem',
+                          fontSize: '0.75rem',
                           backgroundColor: statusColor,
-                          color: 'white'
+                          color: 'white',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 0.5
                         }}
                       >
                         {statusText}
@@ -580,9 +609,9 @@ const CourtDetail = () => {
                 })}
               </Box>
             ) : (
-              <Alert severity="info">
-                Không có khung giờ trống cho ngày đã chọn
-              </Alert>
+              <Typography variant="body2" color="text.secondary">
+                Không có khung giờ nào cho ngày này
+              </Typography>
             )}
           </Paper>
         </Grid>
@@ -648,7 +677,7 @@ const CourtDetail = () => {
               <strong>Ngày:</strong> {selectedDate.toLocaleDateString('vi-VN')}
             </Typography>
             <Typography variant="body1" gutterBottom>
-              <strong>Giờ:</strong> {selectedSlot?.time}
+              <strong>Giờ:</strong> {selectedSlot ? `${selectedSlot.startTime} - ${selectedSlot.endTime}` : ''}
             </Typography>
             <Typography variant="body1" gutterBottom>
               <strong>Giá:</strong> {selectedSlot ? formatPrice(selectedSlot.price) : ''}
@@ -684,6 +713,89 @@ const CourtDetail = () => {
           <Button onClick={handleBookingClose}>Hủy</Button>
           <Button variant="contained" onClick={handleBooking} disabled={bookingLoading}>
             {bookingLoading ? 'Đang xử lý...' : 'Xác nhận đặt sân'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Success Dialog */}
+      <Dialog 
+        open={successDialogOpen} 
+        onClose={handleSuccessDialogClose}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ 
+          textAlign: 'center', 
+          bgcolor: '#4caf50', 
+          color: 'white',
+          py: 2
+        }}>
+          🎉 Đặt sân thành công!
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          {bookingSuccess && (
+            <Box sx={{ py: 2 }}>
+              <Typography variant="h6" gutterBottom sx={{ 
+                display: 'flex', 
+                alignItems: 'center',
+                color: '#2e7d32'
+              }}>
+                <LocationOnIcon sx={{ mr: 1 }} />
+                {bookingSuccess.courtName}
+              </Typography>
+              
+              <Grid container spacing={2} sx={{ mb: 2 }}>
+                <Grid item xs={12} sm={6}>
+                  <Typography variant="body1" sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center'
+                  }}>
+                    📅 Ngày: {selectedDate.toLocaleDateString('vi-VN')}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Typography variant="body1" sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center'
+                  }}>
+                    ⏰ Giờ: {bookingSuccess.startTime} - {bookingSuccess.endTime}
+                  </Typography>
+                </Grid>
+                <Grid item xs={12}>
+                  <Typography variant="body1" sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center'
+                  }}>
+                    💰 Giá: {formatPrice(bookingSuccess.price)}
+                  </Typography>
+                </Grid>
+              </Grid>
+
+              <Divider sx={{ my: 2 }} />
+
+              <Typography variant="body1" paragraph>
+                Chủ sân sẽ liên hệ với bạn qua số điện thoại {userDetails?.phone || 'đã đăng ký'} để xác nhận đơn đặt sân.
+              </Typography>
+              
+              <Typography variant="body1" color="primary">
+                Bạn có thể xem chi tiết đơn đặt sân trong mục "Đơn đặt sân của tôi".
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 3, justifyContent: 'center' }}>
+          <Button 
+            variant="contained" 
+            onClick={handleSuccessDialogClose}
+            sx={{ 
+              minWidth: 200,
+              bgcolor: '#4caf50',
+              '&:hover': {
+                bgcolor: '#2e7d32'
+              }
+            }}
+          >
+            Xác nhận
           </Button>
         </DialogActions>
       </Dialog>

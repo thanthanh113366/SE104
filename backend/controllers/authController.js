@@ -215,11 +215,50 @@ const logout = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Tạo hoặc cập nhật user từ Firebase token
+ * @route   POST /api/auth/sync-user  
+ * @access  Private
+ */
+const syncUser = async (req, res) => {
+  try {
+    const { uid, email, name, role } = req.body;
+
+    // Kiểm tra user đã tồn tại chưa
+    let user = await User.findById(uid);
+    
+    if (!user) {
+      // Tạo user mới
+      user = new User({
+        _id: uid,
+        email: email,
+        displayName: name,
+        role: role || 'renter'
+      });
+      await user.save(uid);
+    }
+
+    res.json({
+      message: 'Đồng bộ user thành công',
+      user: {
+        uid: user._id,
+        email: user.email,
+        displayName: user.displayName,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    console.error('Lỗi đồng bộ user:', error);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+};
+
 module.exports = {
   register,
   login,
   getProfile,
   updateProfile,
   changePassword,
-  logout
+  logout,
+  syncUser
 }; 
