@@ -10,9 +10,8 @@ router.get('/public/courts/:id/bookings', courtController.getPublicCourtBookings
 
 // Routes cho owner (phải đặt TRƯỚC routes với id params)
 router.get('/owner', authenticate, (req, res) => {
-  Court.findByOwnerId(req.user.uid)
-    .then(courts => res.json({ courts }))
-    .catch(error => res.status(500).json({ message: error.message }));
+  req.params.ownerId = req.user.uid;
+  courtController.getCourtsByOwner(req, res);
 });
 
 router.get('/owner/:ownerId', courtController.getCourtsByOwner);

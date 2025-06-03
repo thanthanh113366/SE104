@@ -10,7 +10,8 @@ const {
   updateBookingStatus,
   cancelBooking,
   getCourtBookings,
-  checkAvailability
+  checkAvailability,
+  getReviewableBookings
 } = require('../controllers/bookingController');
 
 /**
@@ -28,13 +29,6 @@ router.post('/', [
 ], createBooking);
 
 /**
- * @route GET /api/bookings/:id
- * @desc Lấy chi tiết đặt sân
- * @access Private
- */
-router.get('/:id', authenticate, getBookingById);
-
-/**
  * @route GET /api/bookings/user
  * @desc Lấy danh sách đặt sân của user
  * @access Private
@@ -42,11 +36,39 @@ router.get('/:id', authenticate, getBookingById);
 router.get('/user', authenticate, getUserBookings);
 
 /**
+ * @route GET /api/bookings/reviewable
+ * @desc Lấy danh sách đặt sân có thể đánh giá của user
+ * @access Private
+ */
+router.get('/reviewable', authenticate, getReviewableBookings);
+
+/**
  * @route GET /api/bookings/owner
  * @desc Lấy danh sách đặt sân của owner
  * @access Private (Owner)
  */
 router.get('/owner', authenticate, getOwnerBookings);
+
+/**
+ * @route GET /api/bookings/court/:courtId
+ * @desc Lấy danh sách đặt sân theo sân
+ * @access Private
+ */
+router.get('/court/:courtId', authenticate, getCourtBookings);
+
+/**
+ * @route GET /api/bookings/available/:courtId
+ * @desc Kiểm tra thời gian trống
+ * @access Public
+ */
+router.get('/available/:courtId', checkAvailability);
+
+/**
+ * @route GET /api/bookings/:id
+ * @desc Lấy chi tiết đặt sân
+ * @access Private
+ */
+router.get('/:id', authenticate, getBookingById);
 
 /**
  * @route PUT /api/bookings/:id/status
@@ -64,19 +86,5 @@ router.put('/:id/status', [
  * @access Private
  */
 router.put('/:id/cancel', authenticate, cancelBooking);
-
-/**
- * @route GET /api/bookings/court/:courtId
- * @desc Lấy danh sách đặt sân theo sân
- * @access Private
- */
-router.get('/court/:courtId', authenticate, getCourtBookings);
-
-/**
- * @route GET /api/bookings/available/:courtId
- * @desc Kiểm tra thời gian trống
- * @access Public
- */
-router.get('/available/:courtId', checkAvailability);
 
 module.exports = router; 

@@ -16,6 +16,7 @@ class Court {
     this.name = data.name || '';
     this.description = data.description || '';
     this.type = data.type || ''; // 'football', 'badminton', 'tennis', 'basketball', etc.
+    this.sport = data.sport || data.type || ''; // Đọc cả sport và type từ Firestore
     this.ownerId = data.ownerId || '';
     this.address = data.address || {
       street: '',
@@ -27,6 +28,7 @@ class Court {
     this.price = data.price || 0; // Giá cơ bản
     this.priceByHour = data.priceByHour || {}; // Giá theo giờ cụ thể { '8-10': 200000, '10-12': 150000 }
     this.amenities = data.amenities || []; // ['parking', 'shower', 'lighting', 'water']
+    this.facilities = data.facilities || data.amenities || []; // Đọc facilities hoặc amenities từ Firestore
     this.images = data.images || [];
     this.operatingHours = data.operatingHours || {
       monday: { open: '06:00', close: '22:00' },
@@ -55,11 +57,13 @@ class Court {
         name: this.name,
         description: this.description,
         type: this.type,
+        sport: this.sport,
         ownerId: this.ownerId,
         address: this.address,
         price: this.price,
         priceByHour: this.priceByHour,
         amenities: this.amenities,
+        facilities: this.facilities,
         images: this.images,
         operatingHours: this.operatingHours,
         status: this.status,
@@ -97,7 +101,32 @@ class Court {
       if (!doc.exists) {
         return null;
       }
-      return new Court({ id: doc.id, ...doc.data() });
+      
+      const courtData = doc.data();
+      const court = new Court({ id: doc.id, ...courtData });
+      
+      // Fetch owner info nếu có ownerId
+      if (courtData.ownerId) {
+        try {
+          const User = require('./User');
+          const owner = await User.findById(courtData.ownerId);
+          if (owner) {
+            court.owner = {
+              name: owner.displayName || owner.email?.split('@')[0] || 'Chưa có tên',
+              phone: owner.phoneNumber || 'Chưa có số điện thoại',
+              email: owner.email
+            };
+          }
+        } catch (ownerError) {
+          console.error('Lỗi khi lấy thông tin chủ sân:', ownerError);
+          court.owner = {
+            name: 'Chưa có tên',
+            phone: 'Chưa có số điện thoại'
+          };
+        }
+      }
+      
+      return court;
     } catch (error) {
       console.error('Lỗi khi tìm sân:', error);
       throw error;
@@ -192,8 +221,6 @@ class Court {
         query = query.limit(options.limit);
       }
 
-      // Thêm log options trước khi get
-      console.log('Query Firestore với options:', options);
       const snapshot = await query.get();
       return snapshot.docs.map(doc => new Court({ id: doc.id, ...doc.data() }));
     } catch (error) {

@@ -108,29 +108,106 @@ const getBookingById = async (req, res) => {
  */
 const getUserBookings = async (req, res) => {
   try {
-    const { page = 1, limit = 10, status } = req.query;
-    const query = { userId: req.user.uid };
+    console.log('getUserBookings called');
+    console.log('User from token:', req.user);
     
-    if (status) {
-      query.status = status;
+    if (!req.user || !req.user.uid) {
+      console.log('User not authenticated properly');
+      return res.status(401).json({ message: 'Người dùng chưa được xác thực' });
     }
 
-    const bookings = await Booking.find(query)
-      .skip((page - 1) * limit)
-      .limit(Number(limit))
-      .sort({ createdAt: -1 });
-
-    const total = await Booking.countDocuments(query);
+    console.log('Getting bookings for user:', req.user.uid);
+    
+    // Sử dụng Firestore method từ Booking model
+    const bookings = await Booking.findByUser(req.user.uid);
+    
+    console.log('Found bookings:', bookings.length);
+    console.log('Bookings data:', bookings.map(b => ({ 
+      id: b.id, 
+      status: b.status, 
+      courtName: b.courtName,
+      date: b.date 
+    })));
 
     res.json({
       bookings,
-      currentPage: Number(page),
-      totalPages: Math.ceil(total / limit),
-      totalBookings: total
+      totalBookings: bookings.length
     });
   } catch (error) {
-    console.error('Lỗi lấy danh sách đặt sân:', error);
-    res.status(500).json({ message: 'Lỗi server' });
+    console.error('Error in getUserBookings:');
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    console.error('Error code:', error.code);
+    res.status(500).json({ 
+      message: 'Lỗi server', 
+      error: error.message,
+      details: error.stack 
+    });
+  }
+};
+
+/**
+ * @desc    Lấy danh sách đặt sân có thể đánh giá của user
+ * @route   GET /api/bookings/reviewable
+ * @access  Private
+ */
+const getReviewableBookings = async (req, res) => {
+  try {
+    console.log('getReviewableBookings called for user:', req.user.uid);
+    
+    // Lấy tất cả bookings của user
+    console.log('Fetching bookings for user...');
+    const bookings = await Booking.findByUser(req.user.uid);
+    console.log('Total bookings found:', bookings.length);
+    
+    // Lọc các booking có thể đánh giá (confirmed hoặc completed và chưa được đánh giá)
+    const reviewableBookings = [];
+    
+    for (const booking of bookings) {
+      console.log('Checking booking:', {
+        id: booking.id,
+        status: booking.status,
+        courtName: booking.courtName
+      });
+      
+      // Chỉ các booking confirmed hoặc completed mới có thể đánh giá
+      if (booking.status === 'confirmed' || booking.status === 'completed' || booking.status === 'Đã xác nhận') {
+        console.log('Booking is eligible for review, checking if already reviewed...');
+        
+        try {
+          // Kiểm tra xem đã đánh giá chưa
+          const Review = require('../models/Review');
+          const existingReview = await Review.findByBooking(booking.id);
+          
+          if (!existingReview) {
+            console.log('No existing review found, adding to reviewable list');
+            reviewableBookings.push(booking);
+          } else {
+            console.log('Already reviewed');
+          }
+        } catch (reviewError) {
+          console.error('Error checking review for booking:', booking.id, reviewError);
+          // Nếu có lỗi khi check review, vẫn cho phép review
+          reviewableBookings.push(booking);
+        }
+      } else {
+        console.log('Booking status not eligible:', booking.status);
+      }
+    }
+
+    console.log('Found reviewable bookings:', reviewableBookings.length);
+
+    res.json({
+      bookings: reviewableBookings,
+      totalBookings: reviewableBookings.length
+    });
+  } catch (error) {
+    console.error('Error in getReviewableBookings:', error);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({ 
+      message: 'Lỗi server', 
+      error: error.message 
+    });
   }
 };
 
@@ -359,5 +436,6 @@ module.exports = {
   updateBookingStatus,
   cancelBooking,
   getCourtBookings,
-  checkAvailability
+  checkAvailability,
+  getReviewableBookings
 }; 

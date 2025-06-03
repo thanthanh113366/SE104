@@ -15,6 +15,7 @@ class Review {
     this.id = data.id || null;
     this.courtId = data.courtId || '';
     this.userId = data.userId || '';
+    this.userName = data.userName || 'Người dùng ẩn danh';
     this.bookingId = data.bookingId || '';
     this.rating = data.rating || 0; // Điểm đánh giá (1-5)
     this.comment = data.comment || '';
@@ -35,6 +36,7 @@ class Review {
       const reviewData = {
         courtId: this.courtId,
         userId: this.userId,
+        userName: this.userName,
         bookingId: this.bookingId,
         rating: this.rating,
         comment: this.comment,
@@ -94,12 +96,16 @@ class Review {
     try {
       const snapshot = await getCollection(reviewCollection)
         .where('courtId', '==', courtId)
-        .where('status', '==', 'active')
+        // .where('status', '==', 'active') // Tạm thời comment để tránh cần composite index
         .orderBy('createdAt', 'desc')
         .limit(limit)
         .get();
 
-      return snapshot.docs.map(doc => new Review({ id: doc.id, ...doc.data() }));
+      // Lọc status trong code thay vì Firestore query
+      const reviews = snapshot.docs.map(doc => new Review({ id: doc.id, ...doc.data() }))
+        .filter(review => review.status === 'active');
+
+      return reviews;
     } catch (error) {
       console.error('Lỗi khi tìm đánh giá theo sân:', error);
       throw error;

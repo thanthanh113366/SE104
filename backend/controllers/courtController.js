@@ -2,6 +2,58 @@ const { Court, Review, Booking } = require('../models');
 const { validationResult } = require('express-validator');
 const { getCollection } = require('../config/db');
 
+// Map tên thể thao từ tiếng Anh sang tiếng Việt  
+const SPORT_NAMES = {
+  'football': 'Bóng đá',
+  'basketball': 'Bóng rổ', 
+  'tennis': 'Tennis',
+  'badminton': 'Cầu lông',
+  'volleyball': 'Bóng chuyền',
+  'billiards': 'Bida',
+  'pool': 'Bida',
+  'snooker': 'Bida'
+};
+
+/**
+ * Transform court data for consistent frontend display
+ * @param {Object} court - Raw court data from database
+ * @returns {Object} - Transformed court data
+ */
+const transformCourtData = (court) => {
+  if (!court) return null;
+  
+  // Xử lý sport type - lấy từ 'sport' field (do frontend lưu vào đó)
+  const sportType = court.sport || court.type || 'football';
+  const sportName = SPORT_NAMES[sportType] || sportType || 'Không xác định';
+  
+  return {
+    ...court,
+    // Giữ nguyên sport field (mã tiếng Anh) để tương thích với frontend
+    sport: sportType,
+    // Thêm type field để tương thích với code cũ
+    type: sportType,
+    // Thêm sportName để hiển thị tiếng Việt
+    sportName: sportName,
+    // Đảm bảo các trường khác
+    name: court.name || 'Chưa có tên',
+    address: court.address || 'Chưa có địa chỉ',
+    description: court.description || 'Chưa có mô tả',
+    price: court.price || 0,
+    openTime: court.openTime || '07:00',
+    closeTime: court.closeTime || '22:00',
+    // Đảm bảo facilities được trả về đúng - ưu tiên facilities, fallback về amenities
+    facilities: Array.isArray(court.facilities) ? court.facilities : 
+                Array.isArray(court.amenities) ? court.amenities : [],
+    image: court.image || 'https://images.unsplash.com/photo-1459865264687-595d652de67e?w=800',
+    amenities: Array.isArray(court.amenities) ? court.amenities : 
+               Array.isArray(court.facilities) ? court.facilities : [],
+    rating: court.rating || 0,
+    status: court.status || 'active',
+    // Thêm field để frontend kiểm tra trạng thái
+    isAvailable: court.status === 'active'
+  };
+};
+
 /**
  * @desc    Lấy danh sách sân
  * @route   GET /api/courts
@@ -33,15 +85,16 @@ const getCourts = async (req, res) => {
     if (priceMax) options.maxPrice = Number(priceMax);
     if (rating) options.minRating = Number(rating);
     
-    // Thêm log options
-    console.log('Options truyền vào Court.findAll:', options);
     const courts = await Court.findAll(options);
     
-    // Nếu có search, lọc thêm trên kết quả
-    let filteredCourts = courts;
+    // Transform dữ liệu trước khi lọc
+    const transformedCourts = courts.map(transformCourtData);
+    
+    // Nếu có search, lọc thêm trên kết quả đã transform
+    let filteredCourts = transformedCourts;
     if (search) {
       const searchLower = search.toLowerCase();
-      filteredCourts = courts.filter(court => 
+      filteredCourts = transformedCourts.filter(court => 
         court.name.toLowerCase().includes(searchLower) || 
         (court.address && court.address.toLowerCase().includes(searchLower))
       );
@@ -66,7 +119,6 @@ const getCourts = async (req, res) => {
       totalCourts: filteredCourts.length
     });
   } catch (error) {
-    console.error('Lỗi lấy danh sách sân:', error);
     res.status(500).json({ message: 'Lỗi server', error: error.message });
   }
 };
@@ -79,13 +131,16 @@ const getCourts = async (req, res) => {
 const getCourtById = async (req, res) => {
   try {
     const court = await Court.findById(req.params.id);
+    
     if (!court) {
       return res.status(404).json({ message: 'Không tìm thấy sân' });
     }
 
-    res.json({ court });
+    // Transform dữ liệu trước khi trả về
+    const transformedCourt = transformCourtData(court);
+
+    res.json({ court: transformedCourt });
   } catch (error) {
-    console.error('Lỗi lấy chi tiết sân:', error);
     res.status(500).json({ message: 'Lỗi server' });
   }
 };
@@ -113,6 +168,7 @@ const createCourt = async (req, res) => {
       description,
       images,
       amenities,
+      facilities,
       openingHours,
       rules
     } = req.body;
@@ -121,6 +177,9 @@ const createCourt = async (req, res) => {
     if (req.user.role !== 'owner') {
       return res.status(403).json({ message: 'Không có quyền tạo sân' });
     }
+
+    // Sử dụng facilities hoặc amenities (facilities có ưu tiên)
+    const courtFacilities = facilities || amenities || [];
 
     const court = new Court({
       name,
@@ -131,7 +190,8 @@ const createCourt = async (req, res) => {
       price,
       description,
       images,
-      amenities,
+      amenities: courtFacilities,
+      facilities: courtFacilities,
       openingHours,
       rules,
       ownerId: req.user.uid
@@ -144,7 +204,6 @@ const createCourt = async (req, res) => {
       court
     });
   } catch (error) {
-    console.error('Lỗi tạo sân:', error);
     res.status(500).json({ message: 'Lỗi server' });
   }
 };
@@ -182,6 +241,7 @@ const updateCourt = async (req, res) => {
       description,
       images,
       amenities,
+      facilities,
       openingHours,
       rules,
       status
@@ -196,7 +256,16 @@ const updateCourt = async (req, res) => {
     if (price) court.price = price;
     if (description) court.description = description;
     if (images) court.images = images;
-    if (amenities) court.amenities = amenities;
+    
+    // Xử lý facilities/amenities - cập nhật cả hai trường để đảm bảo tương thích
+    if (facilities) {
+      court.facilities = facilities;
+      court.amenities = facilities; // Đồng bộ với amenities
+    } else if (amenities) {
+      court.amenities = amenities;
+      court.facilities = amenities; // Đồng bộ với facilities
+    }
+    
     if (openingHours) court.openingHours = openingHours;
     if (rules) court.rules = rules;
     if (status) court.status = status;
@@ -208,7 +277,6 @@ const updateCourt = async (req, res) => {
       court
     });
   } catch (error) {
-    console.error('Lỗi cập nhật sân:', error);
     res.status(500).json({ message: 'Lỗi server' });
   }
 };
@@ -234,7 +302,6 @@ const deleteCourt = async (req, res) => {
 
     res.json({ message: 'Xóa sân thành công' });
   } catch (error) {
-    console.error('Lỗi xóa sân:', error);
     res.status(500).json({ message: 'Lỗi server' });
   }
 };
@@ -257,7 +324,6 @@ const getCourtSchedule = async (req, res) => {
 
     res.json({ schedule });
   } catch (error) {
-    console.error('Lỗi lấy lịch sân:', error);
     res.status(500).json({ message: 'Lỗi server' });
   }
 };
@@ -285,7 +351,6 @@ const getCourtReviews = async (req, res) => {
       totalReviews: reviews.total
     });
   } catch (error) {
-    console.error('Lỗi lấy đánh giá sân:', error);
     res.status(500).json({ message: 'Lỗi server' });
   }
 };
@@ -302,12 +367,14 @@ const getCourtsByOwner = async (req, res) => {
     // Sử dụng findByOwnerId thay vì find
     const courts = await Court.findByOwnerId(ownerId);
     
+    // Transform dữ liệu trước khi trả về
+    const transformedCourts = courts.map(transformCourtData);
+    
     res.json({
-      courts,
-      totalCourts: courts.length
+      courts: transformedCourts,
+      totalCourts: transformedCourts.length
     });
   } catch (error) {
-    console.error('Lỗi lấy danh sách sân của chủ sân:', error);
     res.status(500).json({ message: 'Lỗi server' });
   }
 };
@@ -331,7 +398,6 @@ const getBookedSlots = async (req, res) => {
     });
     res.json({ slots });
   } catch (error) {
-    console.error('Lỗi lấy booked slots:', error);
     res.status(500).json({ message: 'Lỗi server' });
   }
 };
@@ -362,7 +428,6 @@ const getPublicCourtBookings = async (req, res) => {
 
     res.json({ bookings: publicBookings });
   } catch (error) {
-    console.error('Lỗi lấy danh sách booking công khai:', error);
     res.status(500).json({ message: 'Lỗi server' });
   }
 };

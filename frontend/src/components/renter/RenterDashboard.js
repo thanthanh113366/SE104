@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import SportsSoccerIcon from '@mui/icons-material/SportsSoccer';
 import EventNoteIcon from '@mui/icons-material/EventNote';
+import StarIcon from '@mui/icons-material/Star';
 import SupportAgentIcon from '@mui/icons-material/SupportAgent';
 
 // Import các component con
@@ -14,6 +15,7 @@ import RenterHome from './RenterHome';
 import MyBookings from './MyBookings';
 import SearchCourts from './SearchCourts';
 import CourtDetail from './CourtDetail';
+import MyRatings from './MyRatings';
 
 // Placeholder components
 const Support = () => <div>Hỗ trợ</div>;
@@ -38,6 +40,11 @@ const RenterDashboard = () => {
       icon: <EventNoteIcon />
     },
     {
+      label: 'Đánh giá sân',
+      path: '/renter/ratings',
+      icon: <StarIcon />
+    },
+    {
       label: 'Hỗ trợ',
       path: '/renter/support',
       icon: <SupportAgentIcon />
@@ -50,6 +57,7 @@ const RenterDashboard = () => {
         <Route path="/" element={<RenterHome />} />
         <Route path="/find-courts" element={<SearchCourts />} />
         <Route path="/bookings" element={<MyBookings />} />
+        <Route path="/ratings" element={<MyRatings />} />
         <Route path="/support" element={<Support />} />
         <Route path="/court/:courtId" element={<CourtDetail />} />
       </Routes>

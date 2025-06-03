@@ -95,6 +95,16 @@ const SPORT_MAPPINGS = {
   'snooker': 'bida',
 };
 
+// Map từ tên tiếng Việt sang mã tiếng Anh
+const VIETNAMESE_TO_ENGLISH_SPORTS = {
+  'Bóng đá': 'football',
+  'Cầu lông': 'badminton', 
+  'Bóng rổ': 'basketball',
+  'Tennis': 'tennis',
+  'Bóng chuyền': 'volleyball',
+  'Bida': 'billiards'
+};
+
 // Danh sách khu vực
 const DISTRICTS = [
   'Tất cả',
@@ -151,30 +161,44 @@ const SearchCourts = () => {
     const fetchCourts = async () => {
       try {
         setLoading(true);
-        console.log('Bắt đầu lấy dữ liệu sân...');
+        console.log('=== DEBUG: Bắt đầu lấy dữ liệu sân từ Backend API ===');
         
         // Sử dụng CourtsServiceWrapper thay vì truy cập Firestore trực tiếp
         const response = await CourtServiceWrapper.getCourts();
+        console.log('=== DEBUG: Raw response từ CourtServiceWrapper ===', response);
+        
         const courtsData = response.courts || [];
         
-        console.log('Tổng số sân tìm thấy:', courtsData.length);
+        console.log('=== DEBUG: Tổng số sân tìm thấy ===', courtsData.length);
+        console.log('=== DEBUG: Dữ liệu sân đầu tiên (nếu có) ===', courtsData[0]);
+        
+        // Log chi tiết về sport data
+        courtsData.forEach((court, index) => {
+          console.log(`=== DEBUG: Sân ${index + 1} ===`, {
+            name: court.name,
+            type: court.type,
+            sport: court.sport,
+            sportCode: court.sportCode,
+            rawData: court
+          });
+        });
         
         // Nếu không có dữ liệu từ API/Firebase, sử dụng dữ liệu demo
         if (courtsData.length === 0) {
-          console.log('Không tìm thấy dữ liệu, sử dụng dữ liệu demo');
+          console.log('=== DEBUG: Không có dữ liệu từ API, sử dụng dữ liệu demo ===');
           setCourts(DEMO_COURTS);
           setFilteredCourts(DEMO_COURTS);
-          setError('Không tìm thấy dữ liệu sân thật, hiển thị dữ liệu demo.');
+          setError('Không tìm thấy dữ liệu sân từ backend, hiển thị dữ liệu demo để test.');
         } else {
-          console.log('Đã tìm thấy', courtsData.length, 'sân');
+          console.log('=== DEBUG: Sử dụng dữ liệu thực từ backend ===', courtsData.length, 'sân');
           setCourts(courtsData);
           setFilteredCourts(courtsData);
           setError('');
         }
       } catch (error) {
-        console.error('Lỗi truy vấn:', error);
-        console.error('Chi tiết lỗi:', error.code, error.message);
-        setError('Không thể tải dữ liệu sân. Vui lòng thử lại sau.');
+        console.error('=== DEBUG: Lỗi khi gọi backend API ===', error);
+        console.error('=== DEBUG: Chi tiết lỗi ===', error.code, error.message, error.stack);
+        setError(`Lỗi kết nối backend: ${error.message}. Hiển thị dữ liệu demo.`);
         // Sử dụng dữ liệu demo khi có lỗi
         setCourts(DEMO_COURTS);
         setFilteredCourts(DEMO_COURTS);
@@ -201,23 +225,31 @@ const SearchCourts = () => {
         );
       }
 
-      // Lọc theo môn thể thao - Sử dụng kiểm tra không phân biệt hoa thường và hỗ trợ cả tiếng Anh/tiếng Việt
+      // Lọc theo môn thể thao - Sử dụng trường 'type' và map tên tiếng Việt sang tiếng Anh
       if (sport !== 'Tất cả') {
         result = result.filter(court => {
-          // Đảm bảo court.sport luôn có giá trị để tránh lỗi
-          const courtSport = (court.sport || '').toLowerCase();
-          const selectedSport = sport.toLowerCase();
+          // Lấy mã thể thao tiếng Anh từ sân (type hoặc sportCode)
+          const courtSportCode = court.type || court.sportCode || '';
           
-          // Kiểm tra tên trùng khớp trực tiếp
-          if (courtSport === selectedSport) return true;
+          // Chuyển tên thể thao tiếng Việt được chọn sang mã tiếng Anh
+          const selectedSportCode = VIETNAMESE_TO_ENGLISH_SPORTS[sport] || sport.toLowerCase();
           
-          // Kiểm tra xem courtSport có phải là tên tiếng Anh không
+          // So sánh mã thể thao
+          if (courtSportCode.toLowerCase() === selectedSportCode.toLowerCase()) {
+            return true;
+          }
+          
+          // Kiểm tra tên hiển thị (sport) có khớp không
+          const courtSportName = (court.sport || '').toLowerCase();
+          if (courtSportName === sport.toLowerCase()) {
+            return true;
+          }
+          
+          // Kiểm tra mapping cũ để tương thích
           for (const [engName, viName] of Object.entries(SPORT_MAPPINGS)) {
-            // Nếu tên tiếng Anh trong cơ sở dữ liệu, nhưng người dùng tìm bằng tên tiếng Việt
-            if (courtSport === engName && viName === selectedSport) return true;
-            
-            // Nếu tên tiếng Việt trong cơ sở dữ liệu, nhưng người dùng tìm bằng tên tiếng Anh
-            if (courtSport === viName && engName === selectedSport) return true;
+            if (courtSportCode.toLowerCase() === engName && viName === sport.toLowerCase()) {
+              return true;
+            }
           }
           
           return false;

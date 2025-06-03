@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { 
   Box, 
   Typography, 
@@ -38,6 +38,7 @@ import BookOnlineIcon from '@mui/icons-material/BookOnline';
 import { useAuth } from '../../contexts/AuthContext';
 import CourtServiceWrapper from '../../services/courtServiceWrapper';
 import BookingServiceWrapper from '../../services/bookingServiceWrapper';
+import ReviewServiceWrapper from '../../services/reviewServiceWrapper';
 
 // Demo data (sẽ thay bằng dữ liệu từ Firestore)
 const DEMO_COURTS = [
@@ -110,6 +111,7 @@ const CourtDetail = () => {
   const { courtId } = useParams();
   const { userDetails, currentUser } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   
   const [court, setCourt] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -123,6 +125,29 @@ const CourtDetail = () => {
   const [existingBookings, setExistingBookings] = useState([]);
   const [successDialogOpen, setSuccessDialogOpen] = useState(false);
   const [bookingSuccess, setBookingSuccess] = useState(null);
+  const [reviews, setReviews] = useState([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [writeReviewOpen, setWriteReviewOpen] = useState(false);
+  const [selectedBookingForReview, setSelectedBookingForReview] = useState(null);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [userCompletedBookings, setUserCompletedBookings] = useState([]);
+  const [availableBookingsToReview, setAvailableBookingsToReview] = useState([]);
+  
+  // Xử lý state từ navigate (từ MyRatings)
+  useEffect(() => {
+    console.log('CourtDetail location.state:', location.state);
+    
+    if (location.state?.openReviewDialog && location.state?.booking) {
+      console.log('Opening review dialog with booking:', location.state.booking);
+      setSelectedBookingForReview(location.state.booking);
+      setWriteReviewOpen(true);
+      
+      // Clear state để tránh mở lại khi component re-render
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
   
   // Helper function để chuyển đổi Firestore timestamp sang Date nếu cần
   const convertFirestoreDate = (firestoreDate) => {
@@ -140,6 +165,22 @@ const CourtDetail = () => {
     
     // Nếu đã là Date, trả về nguyên bản
     return firestoreDate;
+  };
+  
+  // Helper function để format thời gian hiển thị
+  const formatDate = (date) => {
+    if (!date) return 'Không rõ thời gian';
+    
+    try {
+      const convertedDate = convertFirestoreDate(date);
+      if (!convertedDate || isNaN(convertedDate.getTime())) {
+        return 'Không rõ thời gian';
+      }
+      return convertedDate.toLocaleDateString('vi-VN');
+    } catch (error) {
+      console.error('Lỗi format date:', error);
+      return 'Không rõ thời gian';
+    }
   };
   
   // Helper function để kiểm tra xem hai ngày có cùng một ngày không
@@ -162,37 +203,12 @@ const CourtDetail = () => {
       try {
         setLoading(true);
         
-        // Lấy dữ liệu sử dụng service wrapper thay vì Firestore trực tiếp
-        console.log('Đang lấy thông tin sân với ID:', courtId);
+        const courtData = await CourtServiceWrapper.getCourtById(courtId);
         
-        try {
-          const courtData = await CourtServiceWrapper.getCourtById(courtId);
-          
-          if (courtData) {
-            console.log('Đã tìm thấy thông tin sân:', courtData.id);
-            console.log('Dữ liệu sân:', courtData);
-            setCourt(courtData);
-          } else {
-            console.log('Không tìm thấy sân với ID:', courtId);
-            // Nếu không có dữ liệu, tìm từ dữ liệu demo
-            const foundCourt = DEMO_COURTS.find(c => c.id === courtId);
-            if (foundCourt) {
-              console.log('Đã tìm thấy sân trong dữ liệu demo');
-              setCourt(foundCourt);
-            } else {
-              setError('Không tìm thấy thông tin sân');
-            }
-          }
-        } catch (fetchError) {
-          console.error('Lỗi khi lấy dữ liệu sân:', fetchError);
-          // Sử dụng dữ liệu demo nếu có lỗi xảy ra
-          const foundCourt = DEMO_COURTS.find(c => c.id === courtId);
-          if (foundCourt) {
-            setCourt(foundCourt);
-            setError('Đang hiển thị dữ liệu demo do có lỗi khi lấy dữ liệu thực.');
-          } else {
-            setError('Không thể tải thông tin sân. Vui lòng thử lại sau.');
-          }
+        if (courtData) {
+          setCourt(courtData);
+        } else {
+          setError('Không tìm thấy thông tin sân');
         }
       } catch (error) {
         console.error('Lỗi khi lấy thông tin sân:', error);
@@ -214,8 +230,10 @@ const CourtDetail = () => {
     fetchCourtDetails();
   }, [courtId]);
   
-  // Fetch existing bookings
+  // Fetch existing bookings với interval 1 phút
   useEffect(() => {
+    let intervalId;
+    
     const fetchExistingBookings = async () => {
       try {
         if (!court) return;
@@ -242,8 +260,114 @@ const CourtDetail = () => {
       }
     };
     
+    // Fetch ngay lập tức
     fetchExistingBookings();
+    
+    // Sau đó fetch mỗi 1 phút (60000ms)
+    intervalId = setInterval(fetchExistingBookings, 60000);
+    
+    // Cleanup interval khi component unmount hoặc dependencies thay đổi
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
   }, [court, courtId, selectedDate]);
+  
+  // Fetch court reviews
+  useEffect(() => {
+    const fetchCourtReviews = async () => {
+      try {
+        if (!court) return;
+        setReviewsLoading(true);
+        
+        const response = await ReviewServiceWrapper.getCourtReviews(courtId, { limit: 20 });
+        if (response && response.reviews) {
+          setReviews(response.reviews);
+        } else {
+          setReviews([]);
+        }
+      } catch (error) {
+        console.error('Lỗi khi lấy đánh giá sân:', error);
+        setReviews([]);
+      } finally {
+        setReviewsLoading(false);
+      }
+    };
+    
+    fetchCourtReviews();
+  }, [court, courtId]);
+  
+  // Fetch user's completed bookings for this court với interval 2 phút
+  useEffect(() => {
+    let intervalId;
+    
+    const fetchUserBookingsForCourt = async () => {
+      try {
+        if (!court || !currentUser) return;
+        
+        console.log('=== DEBUG: Đang lấy booking history cho user ===');
+        console.log('Court ID:', courtId);
+        console.log('User ID:', currentUser.uid);
+        
+        // Lấy tất cả booking của user
+        const response = await BookingServiceWrapper.getUserBookings(currentUser.uid);
+        console.log('=== DEBUG: Response từ getUserBookings ===', response);
+        
+        if (response && response.bookings) {
+          console.log('=== DEBUG: Tất cả bookings của user ===', response.bookings);
+          
+          // Lọc booking cho sân này và đã hoàn thành
+          const completedBookingsForThisCourt = response.bookings.filter(booking => {
+            console.log(`Checking booking ${booking.id}: courtId=${booking.courtId}, status=${booking.status}`);
+            return booking.courtId === courtId && booking.status === 'completed';
+          });
+          
+          console.log('=== DEBUG: Completed bookings cho sân này ===', completedBookingsForThisCourt);
+          setUserCompletedBookings(completedBookingsForThisCourt);
+          
+          // Kiểm tra booking nào chưa được đánh giá
+          const bookingsToReview = [];
+          for (const booking of completedBookingsForThisCourt) {
+            try {
+              console.log(`=== DEBUG: Kiểm tra quyền đánh giá cho booking ${booking.id} ===`);
+              const canReviewResponse = await ReviewServiceWrapper.canUserReviewBooking(booking.id);
+              console.log('Can review response:', canReviewResponse);
+              
+              if (canReviewResponse && canReviewResponse.canReview) {
+                bookingsToReview.push(booking);
+                console.log(`Booking ${booking.id} có thể đánh giá`);
+              } else {
+                console.log(`Booking ${booking.id} không thể đánh giá:`, canReviewResponse?.reason);
+              }
+            } catch (error) {
+              console.error(`Lỗi kiểm tra quyền đánh giá booking ${booking.id}:`, error);
+            }
+          }
+          
+          console.log('=== DEBUG: Final bookings có thể đánh giá ===', bookingsToReview);
+          setAvailableBookingsToReview(bookingsToReview);
+        } else {
+          console.log('=== DEBUG: Không có bookings nào ===');
+        }
+      } catch (error) {
+        console.error('Lỗi khi lấy booking history:', error);
+      }
+    };
+    
+    // Fetch ngay lập tức
+    fetchUserBookingsForCourt();
+    
+    // Sau đó fetch mỗi 2 phút (120000ms) để ít gây tải hơn
+    intervalId = setInterval(fetchUserBookingsForCourt, 120000);
+    
+    // Cleanup interval
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [court, courtId, currentUser]);
   
   // Tạo các khung giờ từ giờ mở cửa đến giờ đóng cửa
   const generateTimeSlots = () => {
@@ -384,6 +508,80 @@ const CourtDetail = () => {
     window.location.reload();
   };
   
+  // Handlers cho review
+  const handleWriteReviewOpen = (booking) => {
+    setSelectedBookingForReview(booking);
+    setWriteReviewOpen(true);
+    setReviewRating(5);
+    setReviewComment('');
+  };
+
+  const handleWriteReviewClose = () => {
+    setWriteReviewOpen(false);
+    setSelectedBookingForReview(null);
+    setReviewRating(5);
+    setReviewComment('');
+  };
+
+  const handleSubmitReview = async () => {
+    try {
+      if (!selectedBookingForReview || !reviewComment.trim()) {
+        return;
+      }
+
+      setReviewSubmitting(true);
+
+      const reviewData = {
+        courtId: court.id,
+        bookingId: selectedBookingForReview.id,
+        rating: reviewRating,
+        comment: reviewComment.trim(),
+        userName: userDetails?.displayName || currentUser.email?.split('@')[0] || 'Người dùng ẩn danh'
+      };
+
+      await ReviewServiceWrapper.createReview(reviewData);
+      
+      // Refresh reviews
+      const response = await ReviewServiceWrapper.getCourtReviews(courtId, { limit: 20 });
+      if (response && response.reviews) {
+        setReviews(response.reviews);
+      }
+
+      // Refresh available bookings to review
+      const userBookingsResponse = await BookingServiceWrapper.getUserBookings(currentUser.uid);
+      if (userBookingsResponse && userBookingsResponse.bookings) {
+        const completedBookingsForThisCourt = userBookingsResponse.bookings.filter(booking => 
+          booking.courtId === courtId && booking.status === 'completed'
+        );
+        
+        // Kiểm tra lại booking nào chưa được đánh giá
+        const bookingsToReview = [];
+        for (const booking of completedBookingsForThisCourt) {
+          try {
+            const canReviewResponse = await ReviewServiceWrapper.canUserReviewBooking(booking.id);
+            if (canReviewResponse && canReviewResponse.canReview) {
+              bookingsToReview.push(booking);
+            }
+          } catch (error) {
+            console.error(`Lỗi kiểm tra quyền đánh giá booking ${booking.id}:`, error);
+          }
+        }
+        
+        setAvailableBookingsToReview(bookingsToReview);
+      }
+
+      handleWriteReviewClose();
+      
+      // Show success message
+      alert('Đánh giá thành công!');
+    } catch (error) {
+      console.error('Lỗi khi gửi đánh giá:', error);
+      alert('Có lỗi xảy ra khi gửi đánh giá. Vui lòng thử lại.');
+    } finally {
+      setReviewSubmitting(false);
+    }
+  };
+  
   // Format price to VND
   const formatPrice = (price) => {
     return new Intl.NumberFormat('vi-VN', {
@@ -482,19 +680,25 @@ const CourtDetail = () => {
             
             <Typography variant="h6" gutterBottom>Mô tả</Typography>
             <Typography variant="body1" paragraph>
-              {court.description}
+              {court.description || 'Chưa có mô tả cho sân này.'}
             </Typography>
             
             <Typography variant="h6" gutterBottom>Tiện ích</Typography>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap={true} sx={{ mb: 2 }}>
-              {court.facilities.map((facility, index) => (
-                <Chip key={index} label={facility} sx={{ m: 0.5 }} />
-              ))}
+              {court.facilities && court.facilities.length > 0 ? (
+                court.facilities.map((facility, index) => (
+                  <Chip key={index} label={facility} sx={{ m: 0.5 }} />
+                ))
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  Chưa có thông tin tiện ích
+                </Typography>
+              )}
             </Stack>
             
             <Typography variant="h6" gutterBottom>Liên hệ chủ sân</Typography>
             <Typography variant="body1">
-              {court.owner.name} - {court.owner.phone}
+              {court.owner ? `${court.owner.name || 'Chưa có tên'} - ${court.owner.phone || 'Chưa có số điện thoại'}` : 'Chưa có thông tin liên hệ'}
             </Typography>
           </Paper>
         </Grid>
@@ -619,18 +823,43 @@ const CourtDetail = () => {
         {/* Reviews section */}
         <Grid item xs={12}>
           <Paper sx={{ p: 3, borderRadius: 2 }}>
-            <Typography variant="h5" gutterBottom>
-              Đánh giá ({court.reviews ? court.reviews.length : 0})
-            </Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h5">
+                Đánh giá ({reviews.length})
+              </Typography>
+              
+              {/* Nút viết đánh giá - chỉ hiện cho user đã đăng nhận và có booking completed chưa đánh giá */}
+              {currentUser && availableBookingsToReview.length > 0 && (
+                <Button
+                  variant="outlined"
+                  onClick={() => {
+                    // Nếu chỉ có 1 booking, dùng booking đó
+                    if (availableBookingsToReview.length === 1) {
+                      handleWriteReviewOpen(availableBookingsToReview[0]);
+                    } else {
+                      // Nếu có nhiều booking, cho user chọn (tạm thời dùng booking đầu tiên)
+                      handleWriteReviewOpen(availableBookingsToReview[0]);
+                    }
+                  }}
+                  sx={{ ml: 2 }}
+                >
+                  Viết đánh giá ({availableBookingsToReview.length})
+                </Button>
+              )}
+            </Box>
             
-            {court.reviews && court.reviews.length > 0 ? (
+            {reviewsLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                <CircularProgress />
+              </Box>
+            ) : reviews.length > 0 ? (
               <Box>
-                {court.reviews.map((review) => (
+                {reviews.map((review) => (
                   <Box key={review.id} sx={{ py: 2 }}>
                     <Grid container spacing={1}>
                       <Grid item xs={12}>
                         <Typography variant="subtitle1" fontWeight="bold">
-                          {review.user}
+                          {review.userName || review.userId || 'Người dùng ẩn danh'}
                         </Typography>
                       </Grid>
                       <Grid item xs={12}>
@@ -642,7 +871,7 @@ const CourtDetail = () => {
                             sx={{ mr: 1 }}
                           />
                           <Typography variant="body2" color="text.secondary">
-                            {new Date(review.date).toLocaleDateString('vi-VN')}
+                            {formatDate(review.createdAt)}
                           </Typography>
                         </Box>
                       </Grid>
@@ -651,6 +880,33 @@ const CourtDetail = () => {
                           {review.comment}
                         </Typography>
                       </Grid>
+                      
+                      {/* Phản hồi từ chủ sân nếu có */}
+                      {review.ownerReply && (
+                        <Grid item xs={12}>
+                          <Box sx={{ 
+                            ml: 2, 
+                            pl: 2, 
+                            borderLeft: '3px solid #e0e0e0',
+                            mt: 1,
+                            bgcolor: '#f5f5f5',
+                            borderRadius: 1,
+                            p: 2
+                          }}>
+                            <Typography variant="subtitle2" fontWeight="bold" color="primary">
+                              Phản hồi từ chủ sân:
+                            </Typography>
+                            <Typography variant="body2" sx={{ mt: 0.5 }}>
+                              {review.ownerReply}
+                            </Typography>
+                            {review.replyAt && (
+                              <Typography variant="caption" color="text.secondary">
+                                {formatDate(review.replyAt)}
+                              </Typography>
+                            )}
+                          </Box>
+                        </Grid>
+                      )}
                     </Grid>
                     <Divider sx={{ mt: 2 }} />
                   </Box>
@@ -658,12 +914,90 @@ const CourtDetail = () => {
               </Box>
             ) : (
               <Alert severity="info">
-                Chưa có đánh giá nào cho sân này
+                Chưa có đánh giá nào cho sân này. Hãy là người đầu tiên đánh giá!
               </Alert>
             )}
           </Paper>
         </Grid>
       </Grid>
+      
+      {/* Write Review Dialog */}
+      <Dialog open={writeReviewOpen} onClose={handleWriteReviewClose} maxWidth="md" fullWidth>
+        <DialogTitle>Viết đánh giá cho sân</DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            <Typography variant="h6" gutterBottom>
+              {court.name}
+            </Typography>
+            
+            {/* Hiển thị thông tin booking đang được đánh giá */}
+            {selectedBookingForReview && (
+              <Box sx={{ 
+                p: 2, 
+                mb: 3, 
+                bgcolor: '#f5f5f5', 
+                borderRadius: 1,
+                border: '1px solid #e0e0e0'
+              }}>
+                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                  Thông tin lượt đặt sân:
+                </Typography>
+                <Typography variant="body2">
+                  📅 Ngày: {selectedBookingForReview.date ? 
+                    formatDate(selectedBookingForReview.date) : 'N/A'}
+                </Typography>
+                <Typography variant="body2">
+                  ⏰ Giờ: {selectedBookingForReview.startTime} - {selectedBookingForReview.endTime}
+                </Typography>
+                <Typography variant="body2">
+                  💰 Giá: {formatPrice(selectedBookingForReview.totalPrice || selectedBookingForReview.price)}
+                </Typography>
+              </Box>
+            )}
+            
+            <Typography variant="body1" gutterBottom sx={{ mb: 3 }}>
+              Đánh giá chất lượng sân:
+            </Typography>
+            
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+              <Typography variant="body1" sx={{ mr: 2 }}>
+                Điểm đánh giá:
+              </Typography>
+              <Rating
+                value={reviewRating}
+                onChange={(event, newValue) => {
+                  setReviewRating(newValue);
+                }}
+                size="large"
+              />
+              <Typography variant="body2" sx={{ ml: 1 }}>
+                ({reviewRating}/5)
+              </Typography>
+            </Box>
+            
+            <TextField
+              fullWidth
+              label="Nhận xét của bạn"
+              multiline
+              rows={4}
+              value={reviewComment}
+              onChange={(e) => setReviewComment(e.target.value)}
+              placeholder="Chia sẻ trải nghiệm của bạn về sân này..."
+              helperText="Hãy chia sẻ ý kiến trung thực để giúp những người khác có sự lựa chọn tốt hơn"
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleWriteReviewClose}>Hủy</Button>
+          <Button 
+            variant="contained" 
+            onClick={handleSubmitReview} 
+            disabled={reviewSubmitting || !reviewComment.trim()}
+          >
+            {reviewSubmitting ? 'Đang gửi...' : 'Gửi đánh giá'}
+          </Button>
+        </DialogActions>
+      </Dialog>
       
       {/* Booking Dialog */}
       <Dialog open={bookingOpen} onClose={handleBookingClose}>

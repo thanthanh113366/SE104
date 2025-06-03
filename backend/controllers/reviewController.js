@@ -14,7 +14,7 @@ const createReview = async (req, res) => {
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { courtId, bookingId, rating, comment, images } = req.body;
+    const { courtId, bookingId, rating, comment, images, userName } = req.body;
 
     // Kiểm tra sân tồn tại
     const court = await Court.findById(courtId);
@@ -30,12 +30,12 @@ const createReview = async (req, res) => {
     if (booking.userId !== req.user.uid) {
       return res.status(403).json({ message: 'Không có quyền đánh giá đặt sân này' });
     }
-    if (booking.status !== 'completed') {
-      return res.status(400).json({ message: 'Chỉ có thể đánh giá sau khi sử dụng sân' });
+    if (booking.status !== 'completed' && booking.status !== 'confirmed' && booking.status !== 'Đã xác nhận') {
+      return res.status(400).json({ message: 'Chỉ có thể đánh giá sau khi đặt sân được xác nhận hoặc hoàn thành' });
     }
 
     // Kiểm tra đã đánh giá chưa
-    const existingReview = await Review.findOne({ bookingId });
+    const existingReview = await Review.findByBooking(bookingId);
     if (existingReview) {
       return res.status(400).json({ message: 'Bạn đã đánh giá đặt sân này' });
     }
@@ -45,15 +45,16 @@ const createReview = async (req, res) => {
       courtId,
       bookingId,
       userId: req.user.uid,
+      userName: userName || 'Người dùng ẩn danh',
       rating,
       comment,
-      images
+      images: images || []
     });
 
     await review.save();
 
     // Cập nhật rating trung bình của sân
-    await court.updateRating();
+    await Court.updateRating(courtId, rating);
 
     res.status(201).json({
       message: 'Đánh giá thành công',
@@ -92,24 +93,22 @@ const getReviewById = async (req, res) => {
 const getCourtReviews = async (req, res) => {
   try {
     const { page = 1, limit = 10, rating } = req.query;
-    const query = { courtId: req.params.courtId };
+    const courtId = req.params.courtId;
     
+    // Sử dụng Firestore methods thay vì MongoDB
+    const reviews = await Review.findByCourt(courtId, Number(limit));
+    
+    // Lọc theo rating nếu có
+    let filteredReviews = reviews;
     if (rating) {
-      query.rating = Number(rating);
+      filteredReviews = reviews.filter(review => review.rating === Number(rating));
     }
 
-    const reviews = await Review.find(query)
-      .skip((page - 1) * limit)
-      .limit(Number(limit))
-      .sort({ createdAt: -1 });
-
-    const total = await Review.countDocuments(query);
-
     res.json({
-      reviews,
+      reviews: filteredReviews,
       currentPage: Number(page),
-      totalPages: Math.ceil(total / limit),
-      totalReviews: total
+      totalPages: Math.ceil(filteredReviews.length / limit),
+      totalReviews: filteredReviews.length
     });
   } catch (error) {
     console.error('Lỗi lấy đánh giá sân:', error);
@@ -125,18 +124,20 @@ const getCourtReviews = async (req, res) => {
 const getUserReviews = async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;
-    const reviews = await Review.find({ userId: req.user.uid })
-      .skip((page - 1) * limit)
-      .limit(Number(limit))
-      .sort({ createdAt: -1 });
-
-    const total = await Review.countDocuments({ userId: req.user.uid });
+    
+    // Sử dụng Firestore method
+    const reviews = await Review.findByUser(req.user.uid);
+    
+    // Phân trang đơn giản
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + Number(limit);
+    const paginatedReviews = reviews.slice(startIndex, endIndex);
 
     res.json({
-      reviews,
+      reviews: paginatedReviews,
       currentPage: Number(page),
-      totalPages: Math.ceil(total / limit),
-      totalReviews: total
+      totalPages: Math.ceil(reviews.length / limit),
+      totalReviews: reviews.length
     });
   } catch (error) {
     console.error('Lỗi lấy đánh giá của user:', error);
@@ -176,9 +177,9 @@ const updateReview = async (req, res) => {
 
     await review.save();
 
-    // Cập nhật rating trung bình của sân
-    const court = await Court.findById(review.courtId);
-    await court.updateRating();
+    // Cập nhật rating trung bình của sân - cần tính toán lại toàn bộ rating
+    // Tạm thời bỏ qua việc cập nhật rating vì cần logic phức tạp hơn
+    // TODO: Implement proper rating recalculation
 
     res.json({
       message: 'Cập nhật đánh giá thành công',
@@ -208,11 +209,8 @@ const deleteReview = async (req, res) => {
       return res.status(403).json({ message: 'Không có quyền xóa đánh giá này' });
     }
 
-    await review.remove();
-
-    // Cập nhật rating trung bình của sân
-    const court = await Court.findById(review.courtId);
-    await court.updateRating();
+    // Sử dụng static method để xóa
+    await Review.delete(req.params.id);
 
     res.json({ message: 'Xóa đánh giá thành công' });
   } catch (error) {
@@ -247,14 +245,15 @@ const addReply = async (req, res) => {
       return res.status(403).json({ message: 'Không có quyền phản hồi đánh giá này' });
     }
 
-    // Thêm phản hồi
-    review.reply = reply;
-    review.replyAt = new Date();
-    await review.save();
+    // Sử dụng static method để thêm reply
+    await Review.addReply(req.params.id, reply);
+    
+    // Lấy review đã cập nhật
+    const updatedReview = await Review.findById(req.params.id);
 
     res.json({
       message: 'Thêm phản hồi thành công',
-      review
+      review: updatedReview
     });
   } catch (error) {
     console.error('Lỗi thêm phản hồi:', error);
@@ -274,45 +273,49 @@ const getReviewStats = async (req, res) => {
       return res.status(404).json({ message: 'Không tìm thấy sân' });
     }
 
-    const stats = await Review.aggregate([
-      { $match: { courtId: court._id } },
-      {
-        $group: {
-          _id: null,
-          averageRating: { $avg: '$rating' },
-          totalReviews: { $sum: 1 },
-          ratingDistribution: {
-            $push: {
-              rating: '$rating'
-            }
-          }
-        }
-      }
-    ]);
+    // Sử dụng static method từ Review model
+    const stats = await Review.getCourtRatingStats(req.params.courtId);
 
-    // Tính phân phối rating
-    const distribution = {
-      5: 0,
-      4: 0,
-      3: 0,
-      2: 0,
-      1: 0
-    };
-
-    if (stats.length > 0) {
-      stats[0].ratingDistribution.forEach(item => {
-        distribution[item.rating]++;
-      });
-    }
-
-    res.json({
-      averageRating: stats.length > 0 ? stats[0].averageRating : 0,
-      totalReviews: stats.length > 0 ? stats[0].totalReviews : 0,
-      distribution
-    });
+    res.json(stats);
   } catch (error) {
     console.error('Lỗi lấy thống kê đánh giá:', error);
     res.status(500).json({ message: 'Lỗi server' });
+  }
+};
+
+/**
+ * @desc    Kiểm tra xem user có thể đánh giá booking không
+ * @route   GET /api/reviews/can-review/:bookingId
+ * @access  Private
+ */
+const canUserReviewBooking = async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+
+    // Kiểm tra booking tồn tại và thuộc về user
+    const booking = await Booking.findById(bookingId);
+    if (!booking) {
+      return res.json({ canReview: false, reason: 'Không tìm thấy đặt sân' });
+    }
+    
+    if (booking.userId !== req.user.uid) {
+      return res.json({ canReview: false, reason: 'Không có quyền đánh giá đặt sân này' });
+    }
+    
+    if (booking.status !== 'completed' && booking.status !== 'confirmed' && booking.status !== 'Đã xác nhận') {
+      return res.json({ canReview: false, reason: 'Chỉ có thể đánh giá sau khi đặt sân được xác nhận hoặc hoàn thành' });
+    }
+
+    // Kiểm tra đã đánh giá chưa
+    const existingReview = await Review.findByBooking(bookingId);
+    if (existingReview) {
+      return res.json({ canReview: false, reason: 'Bạn đã đánh giá đặt sân này' });
+    }
+
+    res.json({ canReview: true });
+  } catch (error) {
+    console.error('Lỗi kiểm tra quyền đánh giá:', error);
+    res.status(500).json({ canReview: false, reason: 'Lỗi hệ thống' });
   }
 };
 
@@ -324,5 +327,6 @@ module.exports = {
   updateReview,
   deleteReview,
   addReply,
-  getReviewStats
+  getReviewStats,
+  canUserReviewBooking
 }; 

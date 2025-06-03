@@ -27,9 +27,10 @@ import {
   Alert
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import { collection, query, where, getDocs, doc, deleteDoc, updateDoc, limit } from 'firebase/firestore';
+import { doc, deleteDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase';
 import { useAuth } from '../../contexts/AuthContext';
+import CourtServiceWrapper from '../../services/courtServiceWrapper';
 
 // Icons
 import AddIcon from '@mui/icons-material/Add';
@@ -197,33 +198,28 @@ const MyCourts = () => {
         return;
       }
       
+      console.log('=== DEBUG: Lấy sân của chủ sân qua Backend API ===');
       console.log('Đang lấy danh sách sân của người dùng với UID:', currentUser.uid);
       
-      // Create query for courts owned by current user
-      const courtsRef = collection(db, 'courts');
-      console.log('Đã tạo reference đến collection courts');
+      // Sử dụng CourtServiceWrapper thay vì truy cập Firestore trực tiếp
+      const response = await CourtServiceWrapper.getCourtsByOwner(currentUser.uid);
+      console.log('=== DEBUG: Raw response từ CourtServiceWrapper.getCourtsByOwner ===', response);
       
-      // Query với ownerId
-      const q = query(courtsRef, where('ownerId', '==', currentUser.uid));
-      console.log('Đã tạo truy vấn với điều kiện ownerId ==', currentUser.uid);
+      const courtsList = response.courts || [];
+      console.log('=== DEBUG: Tổng số sân của chủ sân ===', courtsList.length);
       
-      // Execute query
-      console.log('Đang thực hiện truy vấn...');
-      const querySnapshot = await getDocs(q);
-      console.log('Số lượng document tìm thấy:', querySnapshot.size);
-      
-      // Log thông tin chi tiết từng sân tìm thấy để debug
-      querySnapshot.forEach(doc => {
-        const data = doc.data();
-        console.log(`Debug - Sân tìm thấy:`, {
-          id: doc.id,
-          name: data.name || 'Không có tên', 
-          ownerId: data.ownerId,
-          image: data.image || 'Không có ảnh'
+      // Log chi tiết về sport data
+      courtsList.forEach((court, index) => {
+        console.log(`=== DEBUG: Sân chủ sân ${index + 1} ===`, {
+          name: court.name,
+          type: court.type,
+          sport: court.sport,
+          sportCode: court.sportCode,
+          rawData: court
         });
       });
       
-      if (querySnapshot.empty) {
+      if (courtsList.length === 0) {
         console.log('Không tìm thấy sân nào của người dùng:', currentUser.uid);
         setError('Bạn chưa có sân nào. Hãy thêm sân mới!');
         setCourts([]);
@@ -231,51 +227,17 @@ const MyCourts = () => {
         return;
       }
       
-      const courtsList = [];
-      
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        console.log('Sân:', doc.id, data.name || 'Không có tên');
-        console.log('URL hình ảnh:', data.image);
-        courtsList.push({
-          id: doc.id,
-          ...data,
-          // Đảm bảo có các trường cần thiết
-          name: data.name || 'Chưa có tên',
-          address: data.address || 'Chưa có địa chỉ',
-          description: data.description || '',
-          sport: data.sport || 'football',
-          sportName: SPORT_NAMES[data.sport] || 'Khác',
-          price: data.price || 0,
-          openTime: data.openTime || '06:00',
-          closeTime: data.closeTime || '22:00',
-          facilities: Array.isArray(data.facilities) ? data.facilities : [],
-          isAvailable: data.status === 'active',
-          status: data.status || 'active',
-          image: data.image || 'https://images.unsplash.com/photo-1459865264687-595d652de67e?q=80&w=800&auto=format&fit=crop',
-          // Trường thống kê mặc định
-          totalBookings: data.totalBookings || 0,
-          totalRevenue: data.totalRevenue || 0,
-          rating: data.rating || 0
-        });
-      });
-      
-      console.log('Tổng số sân sau khi xử lý:', courtsList.length);
-      
-      if (courtsList.length > 0) {
-        setCourts(courtsList);
-        setError(''); // Xóa thông báo lỗi nếu có
-      } else {
-        setError('Không tìm thấy sân nào. Vui lòng thêm sân mới!');
-        setCourts([]);
-      }
+      console.log('=== DEBUG: Sử dụng dữ liệu thực từ backend API ===', courtsList.length, 'sân');
+      setCourts(courtsList);
+      setError(''); // Xóa thông báo lỗi nếu có
       
     } catch (err) {
-      console.error('Lỗi khi lấy danh sách sân:', err);
-      console.error('Chi tiết lỗi:', err.code, err.message);
+      console.error('Lỗi khi lấy danh sách sân qua API:', err);
+      console.error('Chi tiết lỗi:', err);
       setError('Không thể tải danh sách sân. Vui lòng thử lại sau.');
-      // Không sử dụng dữ liệu mẫu khi có lỗi thực sự
-      setCourts([]);
+      // Fallback to sample data on error
+      console.log('=== DEBUG: Lỗi API, sử dụng dữ liệu mẫu ===');
+      setCourts(SAMPLE_COURTS);
     } finally {
       setLoading(false);
     }
@@ -571,7 +533,7 @@ const MyCourts = () => {
         </Box>
       ) : (
         <Grid container spacing={3}>
-          {filteredCourts.map((court) => (
+          {sortedCourts.map((court) => (
             <Grid item xs={12} md={6} lg={4} key={court.id}>
               <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', borderRadius: 2, overflow: 'hidden' }}>
                 <CardMedia

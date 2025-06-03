@@ -10,7 +10,8 @@ const {
   updateReview,
   deleteReview,
   addReply,
-  getReviewStats
+  getReviewStats,
+  canUserReviewBooking
 } = require('../controllers/reviewController');
 
 /**
@@ -27,13 +28,6 @@ router.post('/', [
 ], createReview);
 
 /**
- * @route GET /api/reviews/:id
- * @desc Lấy chi tiết đánh giá
- * @access Public
- */
-router.get('/:id', getReviewById);
-
-/**
  * @route GET /api/reviews/court/:courtId
  * @desc Lấy đánh giá theo sân
  * @access Public
@@ -46,6 +40,27 @@ router.get('/court/:courtId', getCourtReviews);
  * @access Private
  */
 router.get('/user', authenticate, getUserReviews);
+
+/**
+ * @route GET /api/reviews/can-review/:bookingId
+ * @desc Kiểm tra xem user có thể đánh giá booking không
+ * @access Private
+ */
+router.get('/can-review/:bookingId', authenticate, canUserReviewBooking);
+
+/**
+ * @route GET /api/reviews/stats/:courtId
+ * @desc Lấy thống kê đánh giá
+ * @access Public
+ */
+router.get('/stats/:courtId', getReviewStats);
+
+/**
+ * @route GET /api/reviews/:id
+ * @desc Lấy chi tiết đánh giá
+ * @access Public
+ */
+router.get('/:id', getReviewById);
 
 /**
  * @route PUT /api/reviews/:id
@@ -74,12 +89,5 @@ router.post('/:id/reply', [
   authenticate,
   check('reply', 'Phản hồi không được để trống').notEmpty()
 ], addReply);
-
-/**
- * @route GET /api/reviews/stats/:courtId
- * @desc Lấy thống kê đánh giá
- * @access Public
- */
-router.get('/stats/:courtId', getReviewStats);
 
 module.exports = router; 

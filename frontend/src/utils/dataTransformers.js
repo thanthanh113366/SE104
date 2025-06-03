@@ -2,6 +2,18 @@
  * Utilities cho việc chuyển đổi dữ liệu giữa API và ứng dụng
  */
 
+// Map tên thể thao từ tiếng Anh sang tiếng Việt
+const SPORT_NAMES = {
+  'football': 'Bóng đá',
+  'basketball': 'Bóng rổ', 
+  'tennis': 'Tennis',
+  'badminton': 'Cầu lông',
+  'volleyball': 'Bóng chuyền',
+  'billiards': 'Bida',
+  'pool': 'Bida',
+  'snooker': 'Bida'
+};
+
 /**
  * Chuyển đổi dữ liệu sân từ API để sử dụng trong frontend
  * @param {Object} court - Dữ liệu sân từ API
@@ -9,6 +21,10 @@
  */
 export const transformCourtData = (court) => {
   if (!court) return null;
+  
+  // Xử lý sport type - chuyển từ 'type' sang 'sport' và map tên tiếng Việt
+  const sportType = court.type || court.sport || 'football';
+  const sportName = SPORT_NAMES[sportType] || sportType || 'Không xác định';
   
   return {
     ...court,
@@ -21,7 +37,11 @@ export const transformCourtData = (court) => {
     address: court.address || 'Chưa có địa chỉ',
     description: court.description || 'Chưa có mô tả',
     price: court.price || 0,
-    sport: court.sport || 'Không xác định',
+    
+    // Xử lý sport - giữ cả mã tiếng Anh và tên tiếng Việt
+    type: sportType, // Mã tiếng Anh cho việc lọc
+    sport: sportName, // Tên tiếng Việt để hiển thị
+    sportCode: sportType, // Alias cho type để tương thích với code cũ
     
     // Đảm bảo giờ mở cửa/đóng cửa
     openTime: court.openTime || '07:00',
