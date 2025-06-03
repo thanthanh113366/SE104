@@ -14,10 +14,8 @@ import AssessmentIcon from '@mui/icons-material/Assessment';
 import AdminHome from './AdminHome';
 import ManageUsers from './ManageUsers';
 import ManageCourts from './ManageCourts';
+import ManageBookings from './ManageBookings';
 import Reports from './Reports';
-
-// Placeholder component cho tính năng chưa triển khai
-const ManageBookings = () => <div>Quản lý đặt sân</div>;
 
 const AdminDashboard = () => {
   const { userDetails } = useAuth();

@@ -8,6 +8,9 @@ const bookingRoutes = require('./bookingRoutes');
 const reviewRoutes = require('./reviewRoutes');
 // const paymentRoutes = require('./paymentRoutes');
 const supportRoutes = require('./supportRoutes');
+const adminRoutes = require('./adminRoutes');
+const ownerRoutes = require('./ownerRoutes');
+const renterRoutes = require('./renterRoutes');
 
 // Mounting routes
 router.use('/auth', authRoutes);
@@ -16,6 +19,9 @@ router.use('/bookings', bookingRoutes);
 router.use('/reviews', reviewRoutes);
 // router.use('/payments', paymentRoutes);
 router.use('/supports', supportRoutes);
+router.use('/admin', adminRoutes);
+router.use('/owner', ownerRoutes);
+router.use('/renter', renterRoutes);
 
 // Thêm route mặc định cho API
 router.get('/', (req, res) => {
@@ -28,7 +34,10 @@ router.get('/', (req, res) => {
       bookings: '/api/bookings',
       reviews: '/api/reviews',
       // payments: '/api/payments',
-      supports: '/api/supports'
+      supports: '/api/supports',
+      admin: '/api/admin',
+      owner: '/api/owner',
+      renter: '/api/renter'
     }
   });
 });

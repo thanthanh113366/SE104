@@ -121,6 +121,11 @@ export const ownerService = {
   rejectBooking: async (bookingId) => {
     return api.put(`/bookings/${bookingId}/reject`);
   },
+  
+  // Dashboard stats
+  getDashboardStats: async () => {
+    return api.get('/owner/dashboard/stats');
+  },
 };
 
 // Các service cho người thuê sân
@@ -149,28 +154,79 @@ export const renterService = {
   cancelBooking: async (bookingId) => {
     return api.put(`/bookings/${bookingId}/cancel`);
   },
+  
+  // Dashboard stats
+  getDashboardStats: async () => {
+    return api.get('/renter/dashboard/stats');
+  },
 };
 
 // Các service cho Admin
 export const adminService = {
-  // Lấy danh sách tất cả người dùng
+  // User Management
   getAllUsers: async () => {
-    return api.get('/admin/users');
+    return api.get('/auth/users');
   },
   
-  // Lấy danh sách tất cả sân
-  getAllCourts: async () => {
-    return api.get('/admin/courts');
+  getUserStats: async () => {
+    return api.get('/auth/users/stats');
   },
   
-  // Lấy danh sách tất cả đặt sân
-  getAllBookings: async () => {
-    return api.get('/admin/bookings');
-  },
-  
-  // Cập nhật trạng thái người dùng
   updateUserStatus: async (userId, status) => {
-    return api.put(`/admin/users/${userId}/status`, { status });
+    return api.put(`/auth/users/${userId}/status`, { status });
+  },
+  
+  deleteUser: async (userId) => {
+    return api.delete(`/auth/users/${userId}`);
+  },
+  
+  // Booking Management
+  getAllBookings: async (params = {}) => {
+    return api.get('/bookings/admin/all', { params });
+  },
+  
+  getBookingStats: async (params = {}) => {
+    return api.get('/bookings/admin/stats', { params });
+  },
+  
+  updateBookingStatus: async (bookingId, status, reason = '') => {
+    return api.put(`/bookings/${bookingId}/admin-status`, { status, reason });
+  },
+  
+  deleteBooking: async (bookingId) => {
+    return api.delete(`/bookings/${bookingId}/admin`);
+  },
+  
+  // Court Management
+  getAllCourts: async (params = {}) => {
+    // Admin sử dụng endpoint courts thông thường với limit cao
+    return api.get('/courts', { 
+      params: { 
+        limit: 1000, // Lấy nhiều sân để admin có thể xem hết
+        ...params 
+      } 
+    });
+  },
+  
+  updateCourtStatus: async (courtId, status) => {
+    return api.put(`/courts/${courtId}/status`, { status });
+  },
+  
+  deleteCourt: async (courtId) => {
+    return api.delete(`/courts/${courtId}`);
+  },
+  
+  getCourtDetails: async (courtId) => {
+    return api.get(`/courts/${courtId}`);
+  },
+  
+  getUserInfo: async (userId) => {
+    return api.get(`/auth/users/${userId}`);
+  },
+  
+  // Dashboard stats
+  getDashboardStats: async () => {
+    return api.get('/admin/dashboard/stats');
   },
 };
 

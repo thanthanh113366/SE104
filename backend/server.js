@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const { connect } = require('./config/db');
 const routes = require('./routes');
 
@@ -21,20 +22,45 @@ try {
   console.error('Không thể kết nối đến Firebase Firestore:', error);
 }
 
+// Serve static files from React build (cho production)
+if (process.env.NODE_ENV === 'production') {
+  const buildPath = path.join(__dirname, '../frontend/build');
+  app.use(express.static(buildPath));
+  console.log('Serving static files from:', buildPath);
+}
+
 // Gắn tất cả routes vào endpoint /api
 app.use('/api', routes);
 
-// Route mặc định cho root
-app.get('/', (req, res) => {
+// Route mặc định cho root (development)
+app.get('/api', (req, res) => {
   res.json({ 
     message: 'Chào mừng đến với API của ứng dụng đặt sân thể thao',
-    apiEndpoint: '/api'
+    apiEndpoint: '/api',
+    environment: process.env.NODE_ENV || 'development'
   });
 });
 
-// Middleware xử lý lỗi 404
-app.use((req, res, next) => {
-  res.status(404).json({ message: 'Endpoint không tìm thấy' });
+// Serve React app cho tất cả routes khác (production)
+if (process.env.NODE_ENV === 'production') {
+  app.get('*', (req, res) => {
+    const buildPath = path.join(__dirname, '../frontend/build/index.html');
+    res.sendFile(buildPath);
+  });
+} else {
+  // Development fallback
+  app.get('/', (req, res) => {
+    res.json({ 
+      message: 'Chào mừng đến với API của ứng dụng đặt sân thể thao',
+      apiEndpoint: '/api',
+      environment: 'development'
+    });
+  });
+}
+
+// Middleware xử lý lỗi 404 (chỉ cho API routes)
+app.use('/api/*', (req, res, next) => {
+  res.status(404).json({ message: 'API endpoint không tìm thấy' });
 });
 
 // Middleware xử lý lỗi
@@ -49,4 +75,5 @@ app.use((err, req, res, next) => {
 // Khởi động server
 app.listen(PORT, () => {
   console.log(`Server đang chạy tại cổng ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });

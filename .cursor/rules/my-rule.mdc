@@ -1,10 +1,7 @@
 ---
 description: 
 globs: 
-alwaysApply: false
+alwaysApply: true
 ---
-if this is logical, just do it and i will accept
 communicate with Vietnamese
-
 các thao tác với terminal hãy nói tôi, tôi sẽ làm và báo lại kết quả
-nếu cần tôi thao tác gì trên firebase hoặc thư mục hãy nói

@@ -1,0 +1,21 @@
+{
+  "name": "sports-court-booking",
+  "version": "1.0.0",
+  "description": "Sports Court Booking Application",
+  "scripts": {
+    "build": "cd frontend && npm ci && npm run build",
+    "start": "cd backend && npm ci && npm start",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm start",
+    "install:backend": "cd backend && npm install",
+    "install:frontend": "cd frontend && npm install",
+    "install:all": "npm run install:backend && npm run install:frontend"
+  },
+  "keywords": ["sports", "court", "booking", "react", "nodejs", "firebase"],
+  "author": "SE104 Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
+} 

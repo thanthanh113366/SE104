@@ -428,14 +428,277 @@ const checkAvailability = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Lấy tất cả đặt sân (Admin only)
+ * @route   GET /api/bookings/admin/all
+ * @access  Admin
+ */
+const getAllBookings = async (req, res) => {
+  try {
+    // Kiểm tra quyền admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Không có quyền truy cập' });
+    }
+
+    const { page = 1, limit = 10, status, courtId, userId, startDate, endDate } = req.query;
+    
+    const bookings = await Booking.findAll({
+      page: parseInt(page),
+      limit: parseInt(limit),
+      status,
+      courtId,
+      userId,
+      startDate,
+      endDate
+    });
+
+    // Lấy thêm thông tin chi tiết và đếm số lượt đặt sân
+    const bookingsWithDetails = await Promise.all(
+      bookings.map(async (booking) => {
+        try {
+          console.log('Processing booking:', booking.id, 'courtId:', booking.courtId, 'userId:', booking.userId);
+          
+          // Lấy thông tin court trước để có ownerId
+          let court = null;
+          if (booking.courtId && booking.courtId.trim()) {
+            try {
+              court = await Court.findById(booking.courtId);
+              console.log('Court found:', court?.name, 'court ownerId:', court?.ownerId);
+            } catch (courtError) {
+              console.error('Error finding court:', courtError);
+            }
+          } else {
+            console.log('Invalid courtId:', booking.courtId);
+          }
+          
+          // Lấy thông tin user
+          let user = null;
+          if (booking.userId && booking.userId.trim()) {
+            try {
+              user = await User.findById(booking.userId);
+              console.log('User found:', user?.displayName || user?.email);
+            } catch (userError) {
+              console.error('Error finding user:', userError);
+            }
+          } else {
+            console.log('Invalid userId:', booking.userId);
+          }
+          
+          // Lấy thông tin owner (chủ sân) - luôn từ court
+          let owner = null;
+          if (court && court.ownerId && court.ownerId.trim()) {
+            try {
+              owner = await User.findById(court.ownerId);
+              console.log('Owner found:', owner?.displayName || owner?.email || 'No name/email');
+            } catch (ownerError) {
+              console.error('Error finding owner:', ownerError);
+            }
+          } else {
+            console.log('No court or invalid ownerId:', court?.ownerId);
+          }
+          
+          // Đếm số lượt đặt sân của user này (chỉ nếu có userId hợp lệ)
+          let userBookingCount = 0;
+          if (booking.userId && booking.userId.trim()) {
+            try {
+              const userBookings = await Booking.findByUser(booking.userId);
+              userBookingCount = userBookings.length;
+            } catch (countError) {
+              console.error('Error counting user bookings:', countError);
+            }
+          }
+          
+          const result = {
+            ...booking,
+            courtDetails: court ? {
+              name: court.name,
+              type: court.type,
+              address: court.address
+            } : null,
+            userDetails: user ? {
+              name: user.displayName,
+              email: user.email,
+              phone: user.phoneNumber
+            } : null,
+            ownerDetails: owner ? {
+              name: owner.displayName || 'Chưa có tên',
+              email: owner.email || 'Chưa có email',
+              phone: owner.phoneNumber || 'Chưa có SĐT'
+            } : null,
+            userBookingCount: userBookingCount
+          };
+          
+          console.log('Final owner details:', result.ownerDetails);
+          return result;
+          
+        } catch (error) {
+          console.error(`Error getting details for booking ${booking.id}:`, error);
+          return {
+            ...booking,
+            courtDetails: null,
+            userDetails: null,
+            ownerDetails: null,
+            userBookingCount: 0
+          };
+        }
+      })
+    );
+
+    res.json({
+      bookings: bookingsWithDetails,
+      total: bookingsWithDetails.length
+    });
+  } catch (error) {
+    console.error('Lỗi lấy danh sách đặt sân:', error);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+};
+
+/**
+ * @desc    Cập nhật trạng thái đặt sân (Admin only)
+ * @route   PUT /api/bookings/:bookingId/admin-status
+ * @access  Admin
+ */
+const updateBookingStatusAdmin = async (req, res) => {
+  try {
+    // Kiểm tra quyền admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Không có quyền truy cập' });
+    }
+
+    const { bookingId } = req.params;
+    const { status, reason } = req.body;
+
+    // Validate status
+    const validStatuses = ['pending', 'confirmed', 'cancelled', 'completed'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ message: 'Trạng thái không hợp lệ' });
+    }
+
+    const booking = await Booking.findById(bookingId);
+    if (!booking) {
+      return res.status(404).json({ message: 'Không tìm thấy đặt sân' });
+    }
+
+    // Cập nhật trạng thái
+    await booking.updateStatus(status, reason);
+
+    res.json({ 
+      message: 'Cập nhật trạng thái thành công',
+      booking 
+    });
+  } catch (error) {
+    console.error('Lỗi cập nhật trạng thái đặt sân:', error);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+};
+
+/**
+ * @desc    Lấy thống kê đặt sân (Admin only)
+ * @route   GET /api/bookings/admin/stats
+ * @access  Admin
+ */
+const getBookingStats = async (req, res) => {
+  try {
+    // Kiểm tra quyền admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Không có quyền truy cập' });
+    }
+
+    const { startDate, endDate } = req.query;
+    
+    const bookings = await Booking.findAll({ startDate, endDate });
+    
+    const stats = {
+      total: bookings.length,
+      byStatus: {
+        pending: bookings.filter(b => b.status === 'pending').length,
+        confirmed: bookings.filter(b => b.status === 'confirmed').length,
+        cancelled: bookings.filter(b => b.status === 'cancelled').length,
+        completed: bookings.filter(b => b.status === 'completed').length
+      },
+      totalRevenue: bookings
+        .filter(b => b.status === 'confirmed' || b.status === 'completed')
+        .reduce((sum, b) => sum + (b.totalPrice || 0), 0),
+      byDate: {},
+      byCourtType: {}
+    };
+
+    // Thống kê theo ngày
+    bookings.forEach(booking => {
+      const date = booking.date;
+      if (!stats.byDate[date]) {
+        stats.byDate[date] = 0;
+      }
+      stats.byDate[date]++;
+    });
+
+    // Thống kê theo loại sân (cần lấy thông tin court)
+    const courtTypes = {};
+    await Promise.all(
+      bookings.map(async (booking) => {
+        try {
+          const court = await Court.findById(booking.courtId);
+          if (court && court.type) {
+            if (!courtTypes[court.type]) {
+              courtTypes[court.type] = 0;
+            }
+            courtTypes[court.type]++;
+          }
+        } catch (error) {
+          console.error(`Error getting court type for booking ${booking.id}:`, error);
+        }
+      })
+    );
+    stats.byCourtType = courtTypes;
+
+    res.json({ stats });
+  } catch (error) {
+    console.error('Lỗi lấy thống kê đặt sân:', error);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+};
+
+/**
+ * @desc    Xóa đặt sân (Admin only)
+ * @route   DELETE /api/bookings/:bookingId/admin
+ * @access  Admin
+ */
+const deleteBookingAdmin = async (req, res) => {
+  try {
+    // Kiểm tra quyền admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Không có quyền truy cập' });
+    }
+
+    const { bookingId } = req.params;
+
+    const booking = await Booking.findById(bookingId);
+    if (!booking) {
+      return res.status(404).json({ message: 'Không tìm thấy đặt sân' });
+    }
+
+    await booking.delete();
+
+    res.json({ message: 'Xóa đặt sân thành công' });
+  } catch (error) {
+    console.error('Lỗi xóa đặt sân:', error);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+};
+
 module.exports = {
   createBooking,
   getBookingById,
   getUserBookings,
+  getReviewableBookings,
   getOwnerBookings,
   updateBookingStatus,
   cancelBooking,
   getCourtBookings,
   checkAvailability,
-  getReviewableBookings
+  getAllBookings,
+  updateBookingStatusAdmin,
+  getBookingStats,
+  deleteBookingAdmin
 }; 

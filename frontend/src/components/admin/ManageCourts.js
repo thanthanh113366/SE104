@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { collection, getDocs, doc, getDoc, updateDoc, deleteDoc, query, where, orderBy, limit } from 'firebase/firestore';
-import { db } from '../../firebase';
+import { adminService } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { 
   Box, 
@@ -53,95 +52,6 @@ import PersonIcon from '@mui/icons-material/Person';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import BlockIcon from '@mui/icons-material/Block';
 
-// Dữ liệu mẫu
-const SAMPLE_COURTS = [
-  {
-    id: 'court1',
-    name: 'Sân bóng đá Mini Thành Công',
-    address: '123 Nguyễn Văn Linh, Quận 7, TP.HCM',
-    ownerId: 'owner1',
-    ownerName: 'Trần Thị B',
-    sport: 'football',
-    sportName: 'Bóng đá',
-    price: 300000,
-    openTime: '06:00',
-    closeTime: '22:00',
-    status: 'active',
-    totalBookings: 32,
-    totalRevenue: 9600000,
-    rating: 4.7,
-    createdAt: '15/01/2023'
-  },
-  {
-    id: 'court2',
-    name: 'Sân cầu lông Olympia',
-    address: '45 Lê Văn Việt, Quận 9, TP.HCM',
-    ownerId: 'owner1',
-    ownerName: 'Trần Thị B',
-    sport: 'badminton',
-    sportName: 'Cầu lông',
-    price: 120000,
-    openTime: '07:00',
-    closeTime: '21:00',
-    status: 'active',
-    totalBookings: 45,
-    totalRevenue: 5400000,
-    rating: 4.5,
-    createdAt: '20/01/2023'
-  },
-  {
-    id: 'court3',
-    name: 'Sân bóng rổ Hòa Bình',
-    address: '78 Trần Não, Quận 2, TP.HCM',
-    ownerId: 'owner2',
-    ownerName: 'Nguyễn Văn H',
-    sport: 'basketball',
-    sportName: 'Bóng rổ',
-    price: 200000,
-    openTime: '06:30',
-    closeTime: '21:30',
-    status: 'inactive',
-    totalBookings: 18,
-    totalRevenue: 3600000,
-    rating: 4.3,
-    createdAt: '05/02/2023'
-  },
-  {
-    id: 'court4',
-    name: 'Sân tennis Lakeview',
-    address: '25 Nguyễn Hữu Thọ, Quận 7, TP.HCM',
-    ownerId: 'owner1',
-    ownerName: 'Trần Thị B',
-    sport: 'tennis',
-    sportName: 'Tennis',
-    price: 250000,
-    openTime: '06:00',
-    closeTime: '20:00',
-    status: 'active',
-    totalBookings: 38,
-    totalRevenue: 9500000,
-    rating: 4.8,
-    createdAt: '10/02/2023'
-  },
-  {
-    id: 'court5',
-    name: 'Sân bóng đá 7 người Sài Gòn',
-    address: '56 Nguyễn Trãi, Quận 5, TP.HCM',
-    ownerId: 'owner3',
-    ownerName: 'Phạm Văn M',
-    sport: 'football',
-    sportName: 'Bóng đá',
-    price: 400000,
-    openTime: '08:00',
-    closeTime: '22:00',
-    status: 'active',
-    totalBookings: 25,
-    totalRevenue: 10000000,
-    rating: 4.6,
-    createdAt: '15/03/2023'
-  }
-];
-
 const ManageCourts = () => {
   const [courts, setCourts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -168,71 +78,99 @@ const ManageCourts = () => {
     'volleyball': 'Bóng chuyền'
   };
   
-  // Lấy dữ liệu sân từ Firestore
+  // Lấy dữ liệu sân từ API Backend
   useEffect(() => {
     const fetchCourts = async () => {
       try {
         setLoading(true);
         setError('');
         
-        console.log('Đang lấy danh sách tất cả sân cho admin...');
+        console.log('Đang lấy danh sách tất cả sân cho admin từ API...');
         
-        const courtsRef = collection(db, 'courts');
-        console.log('Đã tạo reference đến collection courts');
+        // Lấy danh sách sân cơ bản trước
+        const response = await adminService.getAllCourts();
+        console.log('API response:', response.data);
         
-        // Lấy tất cả sân không phân biệt owner
-        const querySnapshot = await getDocs(courtsRef);
-        console.log('Số lượng sân tìm thấy:', querySnapshot.size);
-        
-        const courtsList = [];
-        
-        querySnapshot.forEach(async (doc) => {
-          const data = doc.data();
-          console.log('Sân:', doc.id, data.name || 'Không có tên');
+        if (response.data && response.data.courts) {
+          const basicCourts = response.data.courts;
+          console.log(`Tìm thấy ${basicCourts.length} sân cơ bản`);
           
-          // Xử lý dữ liệu bổ sung (lấy thông tin owner nếu cần)
-          let ownerName = 'Không rõ';
+          // Với mỗi sân, lấy thông tin chi tiết để có owner info
+          const courtsWithDetails = await Promise.all(
+            basicCourts.map(async (court) => {
+              try {
+                // Lấy chi tiết sân (có owner info)
+                const detailResponse = await adminService.getCourtDetails(court.id);
+                const courtDetail = detailResponse.data.court;
+                
+                return {
+                  id: court.id,
+                  name: court.name || 'Chưa có tên',
+                  sport: court.sport || court.type || 'football',
+                  sportName: court.sportName || SPORT_NAMES[court.sport || court.type] || 'Khác',
+                  address: typeof court.address === 'string' ? court.address : 
+                           `${court.address?.street || ''}, ${court.address?.district || ''}, ${court.address?.city || ''}`.replace(/^, |, $/g, '') || 'Chưa có địa chỉ',
+                  ownerId: court.ownerId,
+                  ownerName: courtDetail?.owner?.name || 'Chưa có tên',
+                  price: court.price || 0,
+                  rating: court.rating || 0,
+                  status: court.status || 'active',
+                  totalBookings: courtDetail?.bookingCount || 0,
+                  totalRevenue: 0,
+                  openTime: court.openTime || '06:00',
+                  closeTime: court.closeTime || '22:00',
+                  createdAt: court.createdAt || 'Chưa rõ',
+                  description: court.description || 'Chưa có mô tả',
+                  facilities: court.facilities || court.amenities || []
+                };
+              } catch (detailError) {
+                console.error(`Lỗi lấy chi tiết sân ${court.id}:`, detailError);
+                return {
+                  id: court.id,
+                  name: court.name || 'Chưa có tên',
+                  sport: court.sport || court.type || 'football',
+                  sportName: court.sportName || SPORT_NAMES[court.sport || court.type] || 'Khác',
+                  address: typeof court.address === 'string' ? court.address : 
+                           `${court.address?.street || ''}, ${court.address?.district || ''}, ${court.address?.city || ''}`.replace(/^, |, $/g, '') || 'Chưa có địa chỉ',
+                  ownerId: court.ownerId,
+                  ownerName: 'Chưa có tên',
+                  price: court.price || 0,
+                  rating: court.rating || 0,
+                  status: court.status || 'active',
+                  totalBookings: 0,
+                  totalRevenue: 0,
+                  openTime: court.openTime || '06:00',
+                  closeTime: court.closeTime || '22:00',
+                  createdAt: court.createdAt || 'Chưa rõ',
+                  description: court.description || 'Chưa có mô tả',
+                  facilities: court.facilities || court.amenities || []
+                };
+              }
+            })
+          );
           
-          // Thêm vào danh sách
-          courtsList.push({
-            id: doc.id,
-            ...data,
-            // Đảm bảo các trường cần thiết
-            name: data.name || 'Chưa có tên',
-            address: data.address || 'Chưa có địa chỉ',
-            ownerId: data.ownerId || 'unknown',
-            ownerName: ownerName,
-            sport: data.sport || 'unknown',
-            sportName: SPORT_NAMES[data.sport] || 'Không xác định',
-            price: data.price || 0,
-            openTime: data.openTime || '06:00',
-            closeTime: data.closeTime || '22:00',
-            status: data.status || 'active',
-            totalBookings: data.totalBookings || 0,
-            totalRevenue: data.totalRevenue || 0,
-            rating: data.rating || 0,
-            createdAt: data.createdAt ? new Date(data.createdAt.toDate()).toLocaleDateString('vi-VN') : 'Không rõ'
-          });
-        });
+          console.log('Danh sách sân đã xử lý:', courtsWithDetails.length);
+          console.log('Sample court:', courtsWithDetails[0]);
+          setCourts(courtsWithDetails);
+        } else {
+          console.error('Định dạng response không đúng:', response.data);
+          setError('Định dạng dữ liệu không đúng');
+          setCourts([]);
+        }
         
-        console.log('Danh sách sân đã xử lý:', courtsList.length);
-        setCourts(courtsList);
-        
-      } catch (err) {
-        console.error('Lỗi khi lấy danh sách sân:', err);
-        console.error('Chi tiết lỗi:', err.code, err.message);
-        setError('Không thể tải danh sách sân. Vui lòng thử lại sau.');
-        
-        // Nếu có lỗi, sử dụng dữ liệu mẫu
-        console.log('Sử dụng dữ liệu mẫu do lỗi');
-        setCourts(SAMPLE_COURTS);
+      } catch (error) {
+        console.error('Lỗi khi lấy danh sách sân:', error);
+        setError('Không thể tải danh sách sân: ' + (error.response?.data?.message || error.message));
+        setCourts([]);
       } finally {
         setLoading(false);
       }
     };
-    
-    fetchCourts();
-  }, []);
+
+    if (currentUser) {
+      fetchCourts();
+    }
+  }, [currentUser]);
   
   // Xử lý thay đổi tab
   const handleTabChange = (event, newValue) => {
@@ -303,12 +241,8 @@ const ManageCourts = () => {
       
       const newStatus = selectedCourt.status === 'active' ? 'inactive' : 'active';
       
-      // Cập nhật trong Firestore
-      const courtRef = doc(db, 'courts', selectedCourt.id);
-      await updateDoc(courtRef, { 
-        status: newStatus,
-        updatedAt: new Date()
-      });
+      // Gọi API backend để cập nhật trạng thái
+      await adminService.updateCourtStatus(selectedCourt.id, newStatus);
       
       console.log(`Đã cập nhật trạng thái sân ${selectedCourt.id} thành ${newStatus}`);
       
@@ -326,7 +260,7 @@ const ManageCourts = () => {
       setBlockDialogOpen(false);
     } catch (err) {
       console.error('Lỗi khi thay đổi trạng thái sân:', err);
-      setError('Không thể cập nhật trạng thái sân. Vui lòng thử lại sau.');
+      setError('Không thể cập nhật trạng thái sân: ' + (err.response?.data?.message || err.message));
     } finally {
       setLoading(false);
     }
@@ -339,11 +273,10 @@ const ManageCourts = () => {
     try {
       setLoading(true);
       
-      // Xóa sân từ Firestore
-      const courtRef = doc(db, 'courts', selectedCourt.id);
-      await deleteDoc(courtRef);
+      // Gọi API backend để xóa sân
+      await adminService.deleteCourt(selectedCourt.id);
       
-      console.log(`Đã xóa sân ${selectedCourt.id} khỏi Firestore`);
+      console.log(`Đã xóa sân ${selectedCourt.id}`);
       
       // Cập nhật state
       setCourts(courts.filter(court => court.id !== selectedCourt.id));
@@ -351,7 +284,7 @@ const ManageCourts = () => {
       setDeleteDialogOpen(false);
     } catch (err) {
       console.error('Lỗi khi xóa sân:', err);
-      setError('Không thể xóa sân. Vui lòng thử lại sau.');
+      setError('Không thể xóa sân: ' + (err.response?.data?.message || err.message));
     } finally {
       setLoading(false);
     }
@@ -366,7 +299,8 @@ const ManageCourts = () => {
     // Lọc theo tên hoặc địa chỉ
     const matchesSearch = 
       court.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      court.address.toLowerCase().includes(searchTerm.toLowerCase());
+      court.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      court.ownerName.toLowerCase().includes(searchTerm.toLowerCase());
     
     // Lọc theo loại sân
     const matchesSport = sportFilter === 'all' || court.sport === sportFilter;
@@ -418,6 +352,32 @@ const ManageCourts = () => {
         return <Chip size="small" label={status} />;
     }
   };
+  
+  // Hiển thị thông báo lỗi
+  if (error) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Typography variant="h4" sx={{ mb: 3, fontWeight: 'bold' }}>
+          Quản lý sân
+        </Typography>
+        <Paper sx={{ p: 3, textAlign: 'center' }}>
+          <ErrorIcon color="error" sx={{ fontSize: 60, mb: 2 }} />
+          <Typography variant="h6" color="error" gutterBottom>
+            Lỗi khi tải dữ liệu
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            {error}
+          </Typography>
+          <Button 
+            variant="contained" 
+            onClick={() => window.location.reload()}
+          >
+            Thử lại
+          </Button>
+        </Paper>
+      </Box>
+    );
+  }
   
   return (
     <Box sx={{ p: 3 }}>
@@ -510,6 +470,7 @@ const ManageCourts = () => {
                 <TableCell>Địa chỉ</TableCell>
                 <TableCell>Chủ sân</TableCell>
                 <TableCell>Giá</TableCell>
+                <TableCell>Lượt đặt</TableCell>
                 <TableCell>Đánh giá</TableCell>
                 <TableCell>Trạng thái</TableCell>
                 <TableCell align="right">Hành động</TableCell>
@@ -518,7 +479,7 @@ const ManageCourts = () => {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center" sx={{ py: 3 }}>
+                  <TableCell colSpan={9} align="center" sx={{ py: 3 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column' }}>
                       <CircularProgress size={40} sx={{ mb: 2 }} />
                       <Typography variant="body2" color="text.secondary">
@@ -529,7 +490,7 @@ const ManageCourts = () => {
                 </TableRow>
               ) : paginatedCourts.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center" sx={{ py: 3 }}>
+                  <TableCell colSpan={9} align="center" sx={{ py: 3 }}>
                     <Typography variant="body1">
                       Không tìm thấy sân nào{searchTerm ? ` phù hợp với "${searchTerm}"` : ''}
                     </Typography>
@@ -547,9 +508,22 @@ const ManageCourts = () => {
                         </Typography>
                       </Box>
                     </TableCell>
-                    <TableCell>{court.address}</TableCell>
-                    <TableCell>{court.ownerName}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2">
+                        {court.address}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight="medium">
+                        {court.ownerName}
+                      </Typography>
+                    </TableCell>
                     <TableCell>{formatCurrency(court.price)}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight="bold" color="primary">
+                        {court.totalBookings} lượt
+                      </Typography>
+                    </TableCell>
                     <TableCell>{court.rating}/5</TableCell>
                     <TableCell>{getStatusChip(court.status)}</TableCell>
                     <TableCell align="right">
@@ -626,7 +600,7 @@ const ManageCourts = () => {
                   <Typography><strong>Loại sân:</strong> {selectedCourt.sportName}</Typography>
                   <Typography><strong>Địa chỉ:</strong> {selectedCourt.address}</Typography>
                   <Typography><strong>Giá thuê:</strong> {formatCurrency(selectedCourt.price)}/giờ</Typography>
-                  <Typography><strong>Mô tả:</strong> {selectedCourt.description || 'Không có mô tả'}</Typography>
+                  <Typography><strong>Mô tả:</strong> {selectedCourt.description}</Typography>
                   <Typography><strong>Đánh giá:</strong> {selectedCourt.rating}/5</Typography>
                   <Typography><strong>Trạng thái:</strong> {selectedCourt.status === 'active' ? 'Đang hoạt động' : 'Tạm khóa'}</Typography>
                   <Typography><strong>Ngày tạo:</strong> {selectedCourt.createdAt}</Typography>

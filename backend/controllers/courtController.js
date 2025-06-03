@@ -49,6 +49,12 @@ const transformCourtData = (court) => {
                Array.isArray(court.facilities) ? court.facilities : [],
     rating: court.rating || 0,
     status: court.status || 'active',
+    // Giữ nguyên owner info nếu có
+    owner: court.owner || null,
+    // Đảm bảo các field khác
+    ownerId: court.ownerId,
+    totalBookings: court.totalBookings || 0,
+    totalRevenue: court.totalRevenue || 0,
     // Thêm field để frontend kiểm tra trạng thái
     isAvailable: court.status === 'active'
   };
@@ -302,7 +308,12 @@ const deleteCourt = async (req, res) => {
 
     res.json({ message: 'Xóa sân thành công' });
   } catch (error) {
-    res.status(500).json({ message: 'Lỗi server' });
+    console.error('Lỗi khi xóa sân:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Lỗi server khi xóa sân',
+      error: error.message
+    });
   }
 };
 
@@ -432,12 +443,147 @@ const getPublicCourtBookings = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Cập nhật trạng thái sân (Admin only)
+ * @route   PUT /api/courts/:id/status
+ * @access  Private (Admin)
+ */
+const updateCourtStatus = async (req, res) => {
+  try {
+    // Kiểm tra quyền admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Không có quyền cập nhật trạng thái sân' });
+    }
+
+    const { status } = req.body;
+    
+    // Validate status
+    if (!['active', 'inactive'].includes(status)) {
+      return res.status(400).json({ message: 'Trạng thái không hợp lệ' });
+    }
+
+    const court = await Court.findById(req.params.id);
+    if (!court) {
+      return res.status(404).json({ message: 'Không tìm thấy sân' });
+    }
+
+    // Cập nhật trạng thái
+    court.status = status;
+    court.updatedAt = new Date();
+    await court.save();
+
+    res.json({
+      message: `${status === 'active' ? 'Kích hoạt' : 'Tạm ngưng'} sân thành công`,
+      court: transformCourtData(court)
+    });
+  } catch (error) {
+    console.error('Lỗi khi cập nhật trạng thái sân:', error);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+};
+
+/**
+ * @desc    Lấy danh sách tất cả sân cho Admin (với thông tin owner)
+ * @route   GET /api/courts/admin/all
+ * @access  Private (Admin)
+ */
+const getAllCourtsForAdmin = async (req, res) => {
+  try {
+    // Kiểm tra quyền admin
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Không có quyền truy cập' });
+    }
+
+    const { 
+      limit = 1000, 
+      type,
+      sport,
+      status
+    } = req.query;
+
+    const options = {
+      limit: Number(limit),
+      type: type || sport, // Hỗ trợ cả type và sport param
+      status: status
+    };
+    
+    console.log('Admin đang lấy danh sách sân với options:', options);
+    
+    // Lấy danh sách cơ bản trước
+    const courts = await Court.findAll(options);
+    console.log(`Tìm thấy ${courts.length} sân cơ bản`);
+    console.log('Sample court data:', courts[0] ? {
+      id: courts[0].id,
+      name: courts[0].name,
+      ownerId: courts[0].ownerId
+    } : 'No courts found');
+    
+    // Sau đó với mỗi sân, sử dụng findById để lấy thông tin owner đầy đủ
+    const courtsWithOwnerInfo = await Promise.all(
+      courts.map(async (court, index) => {
+        try {
+          console.log(`Processing court ${index + 1}/${courts.length}: ${court.name} (ID: ${court.id})`);
+          
+          // Sử dụng findById có sẵn để lấy thông tin owner
+          const courtWithOwner = await Court.findById(court.id);
+          console.log(`Court ${court.id} owner info:`, courtWithOwner?.owner);
+          
+          const result = {
+            ...courtWithOwner,
+            totalBookings: courtWithOwner?.bookingCount || 0, // Sử dụng bookingCount từ database
+            totalRevenue: 0
+          };
+          
+          console.log(`Final court ${court.id} data:`, {
+            id: result.id,
+            name: result.name,
+            owner: result.owner,
+            totalBookings: result.totalBookings
+          });
+          
+          return result;
+        } catch (error) {
+          console.error(`Lỗi khi lấy thông tin chi tiết sân ${court.id}:`, error);
+          return {
+            ...court,
+            owner: { name: 'Chưa có tên', phone: 'Chưa có SĐT', email: 'Chưa có email' },
+            totalBookings: 0,
+            totalRevenue: 0
+          };
+        }
+      })
+    );
+    
+    console.log(`Đã xử lý xong thông tin owner cho ${courtsWithOwnerInfo.length} sân`);
+    
+    // Transform dữ liệu trước khi trả về
+    const transformedCourts = courtsWithOwnerInfo.map(transformCourtData);
+    
+    console.log('Sample transformed court:', transformedCourts[0] ? {
+      id: transformedCourts[0].id,
+      name: transformedCourts[0].name,
+      owner: transformedCourts[0].owner,
+      totalBookings: transformedCourts[0].totalBookings
+    } : 'No transformed courts');
+    
+    res.json({
+      courts: transformedCourts,
+      totalCourts: transformedCourts.length
+    });
+  } catch (error) {
+    console.error('Lỗi khi lấy danh sách sân cho admin:', error);
+    res.status(500).json({ message: 'Lỗi server', error: error.message });
+  }
+};
+
 module.exports = {
   getCourts,
   getCourtById,
   createCourt,
   updateCourt,
   deleteCourt,
+  updateCourtStatus,
+  getAllCourtsForAdmin,
   getCourtSchedule,
   getCourtReviews,
   getCourtsByOwner,

@@ -1,7 +1,18 @@
 const express = require('express');
 const router = express.Router();
 const { check } = require('express-validator');
-const { register, login, getProfile, updateProfile, changePassword, logout } = require('../controllers/authController');
+const { 
+  register, 
+  login, 
+  getProfile, 
+  updateProfile, 
+  changePassword, 
+  logout,
+  getAllUsers,
+  updateUserStatus,
+  deleteUser,
+  getUserStats
+} = require('../controllers/authController');
 const { authenticate } = require('../middleware/auth');
 
 /**
@@ -57,5 +68,37 @@ router.put('/change-password', [
  * @access Private
  */
 router.post('/logout', authenticate, logout);
+
+// Admin routes
+/**
+ * @route GET /api/auth/users
+ * @desc Lấy tất cả người dùng (Admin only)
+ * @access Admin
+ */
+router.get('/users', authenticate, getAllUsers);
+
+/**
+ * @route GET /api/auth/users/stats
+ * @desc Lấy thống kê người dùng (Admin only)
+ * @access Admin
+ */
+router.get('/users/stats', authenticate, getUserStats);
+
+/**
+ * @route PUT /api/auth/users/:userId/status
+ * @desc Cập nhật trạng thái người dùng (Admin only)
+ * @access Admin
+ */
+router.put('/users/:userId/status', [
+  authenticate,
+  check('status', 'Trạng thái không hợp lệ').isIn(['active', 'inactive', 'banned'])
+], updateUserStatus);
+
+/**
+ * @route DELETE /api/auth/users/:userId
+ * @desc Xóa người dùng (Admin only)
+ * @access Admin
+ */
+router.delete('/users/:userId', authenticate, deleteUser);
 
 module.exports = router; 

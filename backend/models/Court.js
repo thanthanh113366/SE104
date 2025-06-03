@@ -42,6 +42,7 @@ class Court {
     this.status = data.status || 'active'; // 'active', 'inactive', 'maintenance'
     this.rating = data.rating || 0; // Đánh giá trung bình
     this.reviewCount = data.reviewCount || 0; // Số lượng đánh giá
+    this.bookingCount = data.bookingCount || 0; // Số lượt đặt sân
     this.cancellationPolicy = data.cancellationPolicy || ''; // Chính sách hủy đặt sân
     this.createdAt = data.createdAt || new Date();
     this.updatedAt = data.updatedAt || new Date();
@@ -69,6 +70,7 @@ class Court {
         status: this.status,
         rating: this.rating,
         reviewCount: this.reviewCount,
+        bookingCount: this.bookingCount,
         cancellationPolicy: this.cancellationPolicy,
         updatedAt: new Date()
       };
@@ -344,6 +346,77 @@ class Court {
       return true;
     } catch (error) {
       console.error('Lỗi khi cập nhật trạng thái sân:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Cập nhật số lượt đặt sân
+   * @param {string} courtId - ID của sân
+   * @param {number} increment - Số lượng thay đổi (+1 khi tạo booking, -1 khi hủy)
+   * @returns {Promise<boolean>} - Kết quả cập nhật
+   */
+  static async updateBookingCount(courtId, increment = 1) {
+    try {
+      const courtRef = getCollection(courtCollection).doc(courtId);
+      const doc = await courtRef.get();
+
+      if (!doc.exists) {
+        throw new Error('Sân không tồn tại');
+      }
+
+      const currentCount = doc.data().bookingCount || 0;
+      const newCount = Math.max(0, currentCount + increment); // Không cho phép âm
+
+      await courtRef.update({
+        bookingCount: newCount,
+        updatedAt: new Date()
+      });
+
+      console.log(`Cập nhật booking count cho sân ${courtId}: ${currentCount} -> ${newCount}`);
+      return true;
+    } catch (error) {
+      console.error('Lỗi khi cập nhật booking count:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Đồng bộ booking count cho tất cả sân (chạy một lần để fix data)
+   * @returns {Promise<boolean>} - Kết quả đồng bộ
+   */
+  static async syncAllBookingCounts() {
+    try {
+      console.log('Bắt đầu đồng bộ booking count cho tất cả sân...');
+      
+      const courts = await Court.findAll({ limit: 1000 });
+      const Booking = require('./Booking');
+      
+      let syncedCount = 0;
+      
+      for (const court of courts) {
+        try {
+          // Đếm số booking thực tế
+          const bookings = await Booking.findByCourtId(court.id);
+          const actualCount = bookings.length;
+          
+          // Cập nhật vào court document
+          await getCollection(courtCollection).doc(court.id).update({
+            bookingCount: actualCount,
+            updatedAt: new Date()
+          });
+          
+          console.log(`Sân ${court.name} (${court.id}): ${actualCount} bookings`);
+          syncedCount++;
+        } catch (courtError) {
+          console.error(`Lỗi sync booking count cho sân ${court.id}:`, courtError);
+        }
+      }
+      
+      console.log(`Hoàn thành đồng bộ booking count cho ${syncedCount}/${courts.length} sân`);
+      return true;
+    } catch (error) {
+      console.error('Lỗi khi đồng bộ booking count:', error);
       throw error;
     }
   }

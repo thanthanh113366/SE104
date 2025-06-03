@@ -380,6 +380,187 @@ class Booking {
       throw error;
     }
   }
+
+  /**
+   * Lấy tất cả đặt sân (Admin only)
+   * @param {Object} options - Tùy chọn lọc và phân trang
+   * @returns {Promise<Array<Booking>>} - Danh sách tất cả đặt sân
+   */
+  static async findAll(options = {}) {
+    try {
+      const {
+        page = 1,
+        limit = 10,
+        status,
+        courtId,
+        userId,
+        startDate,
+        endDate
+      } = options;
+
+      // Start with basic query
+      let query = getCollection(bookingCollection);
+
+      // Apply only one filter at a time to avoid index complexity
+      // Priority: status > userId > courtId > date range
+      if (status) {
+        query = query.where('status', '==', status);
+      } else if (userId) {
+        query = query.where('userId', '==', userId);
+      } else if (courtId) {
+        query = query.where('courtId', '==', courtId);
+      } else if (startDate) {
+        query = query.where('date', '>=', new Date(startDate));
+        if (endDate) {
+          query = query.where('date', '<=', new Date(endDate));
+        }
+      }
+
+      // Order by creation date (this requires an index if combined with where clauses)
+      try {
+        query = query.orderBy('createdAt', 'desc');
+      } catch (error) {
+        console.log('OrderBy failed, using simple query without ordering');
+      }
+
+      // Execute query
+      const snapshot = await query.get();
+
+      // Convert to Booking objects and apply additional filtering in memory
+      let bookings = snapshot.docs.map(doc => {
+        const data = doc.data();
+        // Convert Firestore Timestamp to JavaScript Date
+        if (data.date && data.date.toDate) {
+          data.date = data.date.toDate();
+        }
+        if (data.createdAt && data.createdAt.toDate) {
+          data.createdAt = data.createdAt.toDate();
+        }
+        if (data.updatedAt && data.updatedAt.toDate) {
+          data.updatedAt = data.updatedAt.toDate();
+        }
+        return new Booking({ id: doc.id, ...data });
+      });
+
+      // Apply additional filters in memory for complex conditions
+      if (courtId && !options.courtId) { // If courtId filter wasn't applied in query
+        bookings = bookings.filter(booking => booking.courtId === courtId);
+      }
+      if (userId && !options.userId) { // If userId filter wasn't applied in query
+        bookings = bookings.filter(booking => booking.userId === userId);
+      }
+      if (startDate && !options.startDate) {
+        const start = new Date(startDate);
+        bookings = bookings.filter(booking => booking.date >= start);
+      }
+      if (endDate && !options.endDate) {
+        const end = new Date(endDate);
+        bookings = bookings.filter(booking => booking.date <= end);
+      }
+
+      // Sort by creation date in memory if query sorting failed
+      bookings.sort((a, b) => (b.createdAt || new Date()) - (a.createdAt || new Date()));
+
+      return bookings;
+    } catch (error) {
+      console.error('Lỗi khi lấy tất cả đặt sân:', error);
+      
+      // Fallback: simple query without filters
+      try {
+        console.log('Trying fallback query without filters...');
+        const snapshot = await getCollection(bookingCollection).get();
+        
+        const bookings = snapshot.docs.map(doc => {
+          const data = doc.data();
+          // Convert Firestore Timestamp to JavaScript Date
+          if (data.date && data.date.toDate) {
+            data.date = data.date.toDate();
+          }
+          if (data.createdAt && data.createdAt.toDate) {
+            data.createdAt = data.createdAt.toDate();
+          }
+          if (data.updatedAt && data.updatedAt.toDate) {
+            data.updatedAt = data.updatedAt.toDate();
+          }
+          return new Booking({ id: doc.id, ...data });
+        });
+
+        // Apply all filters in memory
+        let filteredBookings = bookings;
+        if (status) {
+          filteredBookings = filteredBookings.filter(booking => booking.status === status);
+        }
+        if (courtId) {
+          filteredBookings = filteredBookings.filter(booking => booking.courtId === courtId);
+        }
+        if (userId) {
+          filteredBookings = filteredBookings.filter(booking => booking.userId === userId);
+        }
+        if (startDate) {
+          const start = new Date(startDate);
+          filteredBookings = filteredBookings.filter(booking => booking.date >= start);
+        }
+        if (endDate) {
+          const end = new Date(endDate);
+          filteredBookings = filteredBookings.filter(booking => booking.date <= end);
+        }
+
+        // Sort by creation date
+        filteredBookings.sort((a, b) => (b.createdAt || new Date()) - (a.createdAt || new Date()));
+
+        return filteredBookings;
+      } catch (fallbackError) {
+        console.error('Fallback query also failed:', fallbackError);
+        throw fallbackError;
+      }
+    }
+  }
+
+  /**
+   * Cập nhật trạng thái đặt sân (with instance method)
+   * @param {string} status - Trạng thái mới
+   * @param {string} reason - Lý do thay đổi
+   * @returns {Promise<boolean>} - Kết quả cập nhật
+   */
+  async updateStatus(status, reason = '') {
+    try {
+      const updateData = {
+        status,
+        updatedAt: new Date()
+      };
+
+      if (status === 'cancelled' && reason) {
+        updateData.cancellationReason = reason;
+      }
+
+      await getCollection(bookingCollection).doc(this.id).update(updateData);
+      this.status = status;
+      this.updatedAt = updateData.updatedAt;
+      
+      if (reason) {
+        this.cancellationReason = reason;
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Lỗi khi cập nhật trạng thái đặt sân:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Xóa đặt sân
+   * @returns {Promise<boolean>} - Kết quả xóa
+   */
+  async delete() {
+    try {
+      await getCollection(bookingCollection).doc(this.id).delete();
+      return true;
+    } catch (error) {
+      console.error('Lỗi khi xóa đặt sân:', error);
+      throw error;
+    }
+  }
 }
 
 module.exports = Booking; 

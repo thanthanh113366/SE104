@@ -8,6 +8,9 @@ const courtController = require('../controllers/courtController');
 // Route public lấy danh sách booking của sân
 router.get('/public/courts/:id/bookings', courtController.getPublicCourtBookings);
 
+// Admin routes (phải đặt TRƯỚC routes khác để tránh conflict)
+router.get('/admin/all', authenticate, courtController.getAllCourtsForAdmin);
+
 // Routes cho owner (phải đặt TRƯỚC routes với id params)
 router.get('/owner', authenticate, (req, res) => {
   req.params.ownerId = req.user.uid;
@@ -23,6 +26,7 @@ router.post('/', authenticate, courtController.createCourt);
 // Routes với id params
 router.get('/:id', courtController.getCourtById);
 router.put('/:id', authenticate, courtController.updateCourt);
+router.put('/:id/status', authenticate, courtController.updateCourtStatus);
 router.delete('/:id', authenticate, courtController.deleteCourt);
 
 // Subroutes

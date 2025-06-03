@@ -11,7 +11,11 @@ const {
   cancelBooking,
   getCourtBookings,
   checkAvailability,
-  getReviewableBookings
+  getReviewableBookings,
+  getAllBookings,
+  updateBookingStatusAdmin,
+  getBookingStats,
+  deleteBookingAdmin
 } = require('../controllers/bookingController');
 
 /**
@@ -49,6 +53,21 @@ router.get('/reviewable', authenticate, getReviewableBookings);
  */
 router.get('/owner', authenticate, getOwnerBookings);
 
+// Admin routes
+/**
+ * @route GET /api/bookings/admin/all
+ * @desc Lấy tất cả đặt sân (Admin only)
+ * @access Admin
+ */
+router.get('/admin/all', authenticate, getAllBookings);
+
+/**
+ * @route GET /api/bookings/admin/stats
+ * @desc Lấy thống kê đặt sân (Admin only)
+ * @access Admin
+ */
+router.get('/admin/stats', authenticate, getBookingStats);
+
 /**
  * @route GET /api/bookings/court/:courtId
  * @desc Lấy danh sách đặt sân theo sân
@@ -81,10 +100,27 @@ router.put('/:id/status', [
 ], updateBookingStatus);
 
 /**
+ * @route PUT /api/bookings/:bookingId/admin-status
+ * @desc Cập nhật trạng thái đặt sân (Admin only)
+ * @access Admin
+ */
+router.put('/:bookingId/admin-status', [
+  authenticate,
+  check('status', 'Trạng thái không hợp lệ').isIn(['pending', 'confirmed', 'completed', 'cancelled'])
+], updateBookingStatusAdmin);
+
+/**
  * @route PUT /api/bookings/:id/cancel
  * @desc Hủy đặt sân
  * @access Private
  */
 router.put('/:id/cancel', authenticate, cancelBooking);
+
+/**
+ * @route DELETE /api/bookings/:bookingId/admin
+ * @desc Xóa đặt sân (Admin only)
+ * @access Admin
+ */
+router.delete('/:bookingId/admin', authenticate, deleteBookingAdmin);
 
 module.exports = router; 
