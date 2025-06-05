@@ -19,7 +19,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import GoogleIcon from '@mui/icons-material/Google';
-import { collection, query, where, getDocs, doc, setDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase'; 
 
 const Register = () => {
@@ -150,11 +150,8 @@ const Register = () => {
       const user = await register(email, password, displayName);
 
       const userDocRef = doc(db, "users", user.uid);
-      await setDoc(userDocRef, {
-        email: email,
-        displayName: displayName,
-        phoneNumber: phoneNumber,
-        createdAt: new Date()
+      await updateDoc(userDocRef, {
+        phoneNumber: phoneNumber
       });
 
       navigate('/select-role'); // Điều hướng sẽ được xử lý bởi ProtectedRoute
