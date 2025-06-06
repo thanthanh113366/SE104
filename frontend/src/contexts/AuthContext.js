@@ -25,7 +25,7 @@ export function AuthProvider({ children }) {
   const [rememberMe, setRememberMe] = useState(false);
 
   // Đăng ký với email và password
-  const register = async (email, password, displayName) => {
+  const register = async (email, password, displayName, phoneNumber = null) => {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
@@ -38,6 +38,7 @@ export function AuthProvider({ children }) {
         uid: user.uid,
         email: user.email,
         displayName: displayName,
+        phoneNumber: phoneNumber || '',
         createdAt: new Date().toISOString(),
         role: null, // sẽ được thiết lập sau
         photoURL: user.photoURL || null,

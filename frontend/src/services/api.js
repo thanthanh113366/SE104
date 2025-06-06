@@ -72,6 +72,14 @@ api.interceptors.response.use(
   }
 );
 
+// Các service cho xác thực
+export const authService = {
+  // Kiểm tra số điện thoại đã tồn tại chưa
+  checkPhoneExists: async (phoneNumber) => {
+    return api.post('/auth/check-phone', { phoneNumber });
+  },
+};
+
 // Các service cho người dùng
 export const userService = {
   // Lấy thông tin hồ sơ người dùng

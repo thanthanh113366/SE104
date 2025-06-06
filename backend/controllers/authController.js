@@ -253,6 +253,40 @@ const syncUser = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Kiểm tra số điện thoại đã tồn tại chưa
+ * @route   POST /api/auth/check-phone
+ * @access  Public
+ */
+const checkPhoneExists = async (req, res) => {
+  try {
+    // Validate request
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { phoneNumber } = req.body;
+
+    // Tìm kiếm user với số điện thoại này
+    const { db, getCollection } = require('../config/db');
+    const snapshot = await getCollection('users')
+      .where('phoneNumber', '==', phoneNumber)
+      .limit(1)
+      .get();
+
+    const exists = !snapshot.empty;
+
+    res.json({
+      exists,
+      message: exists ? 'Số điện thoại đã được sử dụng' : 'Số điện thoại có thể sử dụng'
+    });
+  } catch (error) {
+    console.error('Lỗi kiểm tra số điện thoại:', error);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -260,5 +294,6 @@ module.exports = {
   updateProfile,
   changePassword,
   logout,
-  syncUser
+  syncUser,
+  checkPhoneExists
 }; 

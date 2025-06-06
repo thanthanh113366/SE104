@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { check } = require('express-validator');
-const { register, login, getProfile, updateProfile, changePassword, logout } = require('../controllers/authController');
+const { register, login, getProfile, updateProfile, changePassword, logout, checkPhoneExists } = require('../controllers/authController');
 const { authenticate } = require('../middleware/auth');
 
 /**
@@ -57,5 +57,14 @@ router.put('/change-password', [
  * @access Private
  */
 router.post('/logout', authenticate, logout);
+
+/**
+ * @route POST /api/auth/check-phone
+ * @desc Kiểm tra số điện thoại đã tồn tại chưa
+ * @access Public
+ */
+router.post('/check-phone', [
+  check('phoneNumber', 'Số điện thoại không được để trống').notEmpty()
+], checkPhoneExists);
 
 module.exports = router; 

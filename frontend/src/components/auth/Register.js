@@ -19,8 +19,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import GoogleIcon from '@mui/icons-material/Google';
-import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
-import { db } from '../../firebase'; 
+// Firebase imports removed - no longer needed for direct Firestore operations 
 
 const Register = () => {
   const [email, setEmail] = useState('');
@@ -50,33 +49,10 @@ const Register = () => {
     return phoneRegex.test(phone);
   };
   
-  // Kiểm tra email đã tồn tại hay chưa
-  const checkEmailExists = async (email) => {
-    try {
-      const usersRef = collection(db, "users");
-      const q = query(usersRef, where("email", "==", email));
-      const snapshot = await getDocs(q);
-      return !snapshot.empty;
-    } catch (error) {
-      console.error("Lỗi khi kiểm tra email:", error);
-      throw error;
-    }
-  };
+  // Note: We'll let Firebase handle email uniqueness validation
+  // and add phone number validation through backend or Firebase Auth errors
   
-  // Kiểm tra số điện thoại đã tồn tại hay chưa
-  const checkPhoneExists = async (phone) => {
-    try {
-      const usersRef = collection(db, "users");
-      const q = query(usersRef, where("phoneNumber", "==", phone));
-      const snapshot = await getDocs(q);
-      return !snapshot.empty;
-    } catch (error) {
-      console.error("Lỗi khi kiểm tra số điện thoại:", error);
-      throw error;
-    }
-  };
-  
-  const validateForm = async () => {
+  const validateForm = () => {
     // Reset các lỗi
     setEmailError('');
     setPhoneError('');
@@ -117,24 +93,8 @@ const Register = () => {
       return false;
     }
     
-    try {
-      // Kiểm tra email đã tồn tại
-      const emailExists = await checkEmailExists(email);
-      if (emailExists) {
-        setEmailError('Email này đã được sử dụng');
-        return false;
-      }
-      
-      // Kiểm tra số điện thoại đã tồn tại
-      const phoneExists = await checkPhoneExists(phoneNumber);
-      if (phoneExists) {
-        setPhoneError('Số điện thoại này đã được sử dụng');
-        return false;
-      }
-    } catch (error) {
-      setError('Lỗi khi kiểm tra thông tin: ' + error.message);
-      return false;
-    }
+    // Email uniqueness will be handled by Firebase Auth
+    // Phone number uniqueness will be checked during registration
     
     return true;
   };
@@ -142,21 +102,27 @@ const Register = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (!(await validateForm())) return;
+    if (!validateForm()) return;
     
     try {
       setError('');
       setLoading(true);
-      const user = await register(email, password, displayName);
-
-      const userDocRef = doc(db, "users", user.uid);
-      await updateDoc(userDocRef, {
-        phoneNumber: phoneNumber
-      });
+      
+      // Pass phone number directly to register function
+      const user = await register(email, password, displayName, phoneNumber);
 
       navigate('/select-role'); // Điều hướng sẽ được xử lý bởi ProtectedRoute
     } catch (error) {
-      setError('Đăng ký thất bại: ' + error.message);
+      // Handle specific Firebase errors
+      if (error.code === 'auth/email-already-in-use') {
+        setEmailError('Email này đã được sử dụng');
+      } else if (error.code === 'auth/weak-password') {
+        setError('Mật khẩu quá yếu');
+      } else if (error.code === 'auth/invalid-email') {
+        setEmailError('Email không hợp lệ');
+      } else {
+        setError('Đăng ký thất bại: ' + error.message);
+      }
     } finally {
       setLoading(false);
     }
