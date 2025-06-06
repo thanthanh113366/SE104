@@ -1,13 +1,13 @@
 const { Payment, Booking, Court } = require('../models');
 const { validationResult } = require('express-validator');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const momoService = require('../services/momoService');
 
 /**
- * @desc    Tạo thanh toán mới
- * @route   POST /api/payments
+ * @desc    Tạo thanh toán MoMo
+ * @route   POST /api/payments/momo/create
  * @access  Private
  */
-const createPayment = async (req, res) => {
+const createMoMoPayment = async (req, res) => {
   try {
     // Validate request
     const errors = validationResult(req);
@@ -15,71 +15,106 @@ const createPayment = async (req, res) => {
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { bookingId, paymentMethod } = req.body;
+    const { bookingId } = req.body;
 
-    // Kiểm tra booking tồn tại và thuộc về user
-    const booking = await Booking.findById(bookingId);
-    if (!booking) {
-      return res.status(404).json({ message: 'Không tìm thấy đặt sân' });
-    }
-    if (booking.userId !== req.user.uid) {
-      return res.status(403).json({ message: 'Không có quyền thanh toán đặt sân này' });
-    }
-    if (booking.status !== 'pending') {
-      return res.status(400).json({ message: 'Đặt sân không ở trạng thái chờ thanh toán' });
-    }
+    let booking, court;
+    let isTemporaryBooking = bookingId.startsWith('TEMP_');
 
-    // Kiểm tra đã thanh toán chưa
-    const existingPayment = await Payment.findOne({ bookingId });
-    if (existingPayment) {
-      return res.status(400).json({ message: 'Đặt sân này đã được thanh toán' });
-    }
-
-    // Lấy thông tin sân
-    const court = await Court.findById(booking.courtId);
-    if (!court) {
-      return res.status(404).json({ message: 'Không tìm thấy sân' });
-    }
-
-    // Tính tổng tiền
-    const totalAmount = booking.totalPrice;
-
-    // Tạo payment intent với Stripe
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: totalAmount * 100, // Convert to cents
-      currency: 'vnd',
-      payment_method: paymentMethod,
-      confirm: true,
-      return_url: `${process.env.CLIENT_URL}/payment/success`,
-      metadata: {
-        bookingId: booking._id.toString(),
-        userId: req.user.uid
+    if (isTemporaryBooking) {
+      // Temporary booking - create dummy data for MoMo payment
+      console.log('Processing temporary booking ID:', bookingId);
+      
+      // For temporary booking, we need booking data from request body
+      const { bookingData } = req.body;
+      if (!bookingData) {
+        return res.status(400).json({ message: 'Thiếu thông tin đặt sân cho thanh toán tạm thời' });
       }
-    });
+
+      booking = bookingData;
+      court = { 
+        id: bookingData.courtId, 
+        name: bookingData.courtName,
+        ownerId: bookingData.ownerId 
+      };
+    } else {
+      // Real booking - validate as before
+      booking = await Booking.findById(bookingId);
+      if (!booking) {
+        return res.status(404).json({ message: 'Không tìm thấy đặt sân' });
+      }
+      if (booking.userId !== req.user.uid) {
+        return res.status(403).json({ message: 'Không có quyền thanh toán đặt sân này' });
+      }
+      if (booking.status !== 'pending') {
+        return res.status(400).json({ message: 'Đặt sân không ở trạng thái chờ thanh toán' });
+      }
+
+      // Kiểm tra đã thanh toán chưa
+      const existingPayments = await Payment.findByBooking(bookingId);
+      const successfulPayment = existingPayments.find(p => p.status === 'completed');
+      if (successfulPayment) {
+        return res.status(400).json({ message: 'Đặt sân này đã được thanh toán' });
+      }
+
+      // Lấy thông tin sân
+      court = await Court.findById(booking.courtId);
+      if (!court) {
+        return res.status(404).json({ message: 'Không tìm thấy sân' });
+      }
+    }
+
+    // Chuẩn bị dữ liệu cho MoMo
+    const momoData = {
+      bookingId: bookingId,
+      userId: req.user.uid,
+      courtId: booking.courtId || court.id,
+      amount: booking.totalPrice,
+      courtName: court.name,
+      date: booking.date
+    };
+
+    // Tạo payment với MoMo
+    const momoResult = await momoService.createPayment(momoData);
+
+    if (!momoResult.success) {
+      return res.status(400).json({ 
+        message: 'Không thể tạo thanh toán MoMo',
+        error: momoResult.message
+      });
+    }
 
     // Tạo payment record
     const payment = new Payment({
-      bookingId,
+      bookingId: bookingId,
       userId: req.user.uid,
-      amount: totalAmount,
-      paymentMethod,
-      paymentIntentId: paymentIntent.id,
-      status: paymentIntent.status
+      ownerId: court.ownerId,
+      courtId: booking.courtId,
+      amount: booking.totalPrice,
+      method: 'e_wallet',
+      provider: 'momo',
+      status: 'pending',
+      transactionId: momoResult.orderId,
+      metadata: {
+        requestId: momoResult.requestId,
+        orderId: momoResult.orderId,
+        qrCodeUrl: momoResult.qrCodeUrl
+      }
     });
 
     await payment.save();
 
-    // Cập nhật trạng thái booking
-    booking.status = 'paid';
-    await booking.save();
-
     res.status(201).json({
-      message: 'Thanh toán thành công',
-      payment,
-      clientSecret: paymentIntent.client_secret
+      message: 'Tạo thanh toán MoMo thành công',
+      payment: {
+        id: payment.id,
+        amount: payment.amount,
+        status: payment.status
+      },
+      momoUrl: momoResult.payUrl,
+      qrCodeUrl: momoResult.qrCodeUrl
     });
   } catch (error) {
-    console.error('Lỗi tạo thanh toán:', error);
+    console.error('Lỗi tạo thanh toán MoMo:', error);
     res.status(500).json({ message: 'Lỗi server' });
   }
 };
@@ -115,7 +150,8 @@ const getPaymentById = async (req, res) => {
  */
 const getPaymentByBooking = async (req, res) => {
   try {
-    const payment = await Payment.findOne({ bookingId: req.params.bookingId });
+    const payments = await Payment.findByBooking(req.params.bookingId);
+    const payment = payments.length > 0 ? payments[0] : null;
     if (!payment) {
       return res.status(404).json({ message: 'Không tìm thấy thanh toán' });
     }
@@ -140,12 +176,9 @@ const getPaymentByBooking = async (req, res) => {
 const getUserPayments = async (req, res) => {
   try {
     const { page = 1, limit = 10 } = req.query;
-    const payments = await Payment.find({ userId: req.user.uid })
-      .skip((page - 1) * limit)
-      .limit(Number(limit))
-      .sort({ createdAt: -1 });
+    const payments = await Payment.findByUser(req.user.uid, { limit: Number(limit) });
 
-    const total = await Payment.countDocuments({ userId: req.user.uid });
+    const total = payments.length;
 
     res.json({
       payments,
@@ -192,6 +225,174 @@ const getOwnerPayments = async (req, res) => {
     });
   } catch (error) {
     console.error('Lỗi lấy thanh toán của owner:', error);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+};
+
+/**
+ * @desc    Xử lý callback từ MoMo
+ * @route   POST /api/payments/momo/callback
+ * @access  Public (MoMo server)
+ */
+const handleMoMoCallback = async (req, res) => {
+  try {
+    console.log('MoMo Callback received:', req.body);
+
+    const callbackData = req.body;
+    
+    // Xác thực signature từ MoMo
+    const isValidSignature = momoService.verifyCallback(callbackData);
+    if (!isValidSignature) {
+      console.error('Invalid MoMo signature');
+      return res.status(400).json({ message: 'Invalid signature' });
+    }
+
+    const { orderId, resultCode, transId, extraData } = callbackData;
+
+    // Parse extraData để lấy bookingId
+    let bookingData;
+    try {
+      bookingData = JSON.parse(extraData);
+    } catch (error) {
+      console.error('Error parsing extraData:', error);
+      return res.status(400).json({ message: 'Invalid extraData' });
+    }
+
+    // Tìm payment record
+    const payment = await Payment.findByTransactionId(orderId);
+    if (!payment) {
+      console.error('Payment not found for orderId:', orderId);
+      return res.status(404).json({ message: 'Payment not found' });
+    }
+
+    // Cập nhật payment status
+    if (resultCode === 0) {
+      // Thanh toán thành công
+      await Payment.updateStatus(payment.id, 'completed', {
+        paymentDate: new Date(),
+        transactionId: transId,
+        metadata: {
+          ...payment.metadata,
+          momoTransId: transId,
+          resultCode: resultCode
+        }
+      });
+
+      // Cập nhật booking status
+      const booking = await Booking.findById(bookingData.bookingId);
+      if (booking) {
+        booking.status = 'confirmed';
+        await booking.save();
+      }
+
+      console.log('Payment completed successfully:', orderId);
+    } else {
+      // Thanh toán thất bại
+      await Payment.updateStatus(payment.id, 'failed', {
+        metadata: {
+          ...payment.metadata,
+          resultCode: resultCode,
+          failureReason: callbackData.message
+        }
+      });
+
+      console.log('Payment failed:', orderId, 'Result code:', resultCode);
+    }
+
+    // Trả về response cho MoMo
+    res.status(200).json({ message: 'Callback processed successfully' });
+  } catch (error) {
+    console.error('Error handling MoMo callback:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
+/**
+ * @desc    Xử lý return URL từ MoMo (user quay lại app)
+ * @route   GET /api/payments/momo/return
+ * @access  Public
+ */
+const handleMoMoReturn = async (req, res) => {
+  try {
+    console.log('MoMo Return URL accessed:', req.query);
+
+    const { orderId, resultCode, extraData } = req.query;
+
+    // Parse extraData
+    let bookingData;
+    try {
+      bookingData = JSON.parse(extraData);
+    } catch (error) {
+      console.error('Error parsing extraData in return:', error);
+      return res.redirect(`${process.env.CLIENT_URL}/payment/error`);
+    }
+
+    if (resultCode === '0') {
+      // Thanh toán thành công
+      res.redirect(`${process.env.CLIENT_URL}/payment/success?bookingId=${bookingData.bookingId}&orderId=${orderId}`);
+    } else {
+      // Thanh toán thất bại
+      res.redirect(`${process.env.CLIENT_URL}/payment/error?reason=payment_failed&bookingId=${bookingData.bookingId}`);
+    }
+  } catch (error) {
+    console.error('Error handling MoMo return:', error);
+    res.redirect(`${process.env.CLIENT_URL}/payment/error?reason=server_error`);
+  }
+};
+
+/**
+ * @desc    Kiểm tra trạng thái thanh toán
+ * @route   GET /api/payments/momo/status/:orderId
+ * @access  Private
+ */
+const checkMoMoPaymentStatus = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    // Tìm payment trong database
+    const payment = await Payment.findByTransactionId(orderId);
+    if (!payment) {
+      return res.status(404).json({ message: 'Không tìm thấy thanh toán' });
+    }
+
+    // Kiểm tra quyền truy cập
+    if (payment.userId !== req.user.uid && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Không có quyền kiểm tra thanh toán này' });
+    }
+
+    // Kiểm tra với MoMo nếu cần
+    if (payment.status === 'pending') {
+      try {
+        const momoStatus = await momoService.checkTransactionStatus(
+          orderId, 
+          payment.metadata.requestId
+        );
+        
+        if (momoStatus.resultCode === 0 && payment.status !== 'completed') {
+          // Cập nhật status nếu MoMo đã confirm
+          await Payment.updateStatus(payment.id, 'completed', {
+            paymentDate: new Date(),
+            transactionId: momoStatus.transId
+          });
+          payment.status = 'completed';
+        }
+      } catch (error) {
+        console.error('Error checking MoMo status:', error);
+      }
+    }
+
+    res.json({
+      payment: {
+        id: payment.id,
+        orderId: orderId,
+        status: payment.status,
+        amount: payment.amount,
+        createdAt: payment.createdAt,
+        paymentDate: payment.paymentDate
+      }
+    });
+  } catch (error) {
+    console.error('Error checking payment status:', error);
     res.status(500).json({ message: 'Lỗi server' });
   }
 };
@@ -308,11 +509,13 @@ const handlePaymentFailure = async (paymentIntent) => {
 };
 
 module.exports = {
-  createPayment,
+  createMoMoPayment,
+  handleMoMoCallback,
+  handleMoMoReturn,
+  checkMoMoPaymentStatus,
   getPaymentById,
   getPaymentByBooking,
   getUserPayments,
   getOwnerPayments,
-  refundPayment,
-  handleWebhook
+  refundPayment
 }; 

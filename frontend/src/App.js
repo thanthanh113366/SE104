@@ -12,6 +12,9 @@ import AdminDashboard from './components/admin/AdminDashboard';
 import OwnerDashboard from './components/owner/OwnerDashboard';
 import RenterDashboard from './components/renter/RenterDashboard';
 import UserProfile from './components/shared/UserProfile';
+import PaymentSuccess from './components/payment/PaymentSuccess';
+import MoMoReturn from './components/payment/MoMoReturn';
+import PaymentReturn from './components/payment/PaymentReturn';
 
 // AuthContext
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -162,6 +165,11 @@ function App() {
                 <UserProfile />
               </ProtectedRoute>
             } />
+            
+            {/* Payment routes */}
+            <Route path="/payment/success" element={<PaymentSuccess />} />
+            <Route path="/payment/momo-return" element={<MoMoReturn />} />
+            <Route path="/payment/return" element={<PaymentReturn />} />
             
             {/* Smart redirect route */}
             <Route path="/" element={<SmartRedirect />} />

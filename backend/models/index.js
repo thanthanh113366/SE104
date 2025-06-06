@@ -2,7 +2,7 @@ const User = require('./User');
 const Court = require('./Court');
 const Booking = require('./Booking');
 const Review = require('./Review');
-// const Payment = require('./Payment'); // REMOVED
+const Payment = require('./Payment');
 const Support = require('./Support');
 
 module.exports = {
@@ -10,6 +10,6 @@ module.exports = {
   Court,
   Booking,
   Review,
-  // Payment, // REMOVED
+  Payment,
   Support
 }; 

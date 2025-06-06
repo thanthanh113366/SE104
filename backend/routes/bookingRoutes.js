@@ -11,7 +11,8 @@ const {
   cancelBooking,
   getCourtBookings,
   checkAvailability,
-  getReviewableBookings
+  getReviewableBookings,
+  cleanupOldPendingBookings
 } = require('../controllers/bookingController');
 
 /**
@@ -30,24 +31,45 @@ router.post('/', [
 
 /**
  * @route GET /api/bookings/user
- * @desc Lấy danh sách đặt sân của user
+ * @desc Lấy danh sách đặt sân của người dùng
  * @access Private
  */
 router.get('/user', authenticate, getUserBookings);
 
 /**
+ * @route GET /api/bookings/owner
+ * @desc Lấy danh sách đặt sân của chủ sân
+ * @access Private (Owner)
+ */
+router.get('/owner', authenticate, getOwnerBookings);
+
+/**
  * @route GET /api/bookings/reviewable
- * @desc Lấy danh sách đặt sân có thể đánh giá của user
+ * @desc Lấy danh sách đặt sân có thể đánh giá
  * @access Private
  */
 router.get('/reviewable', authenticate, getReviewableBookings);
 
 /**
- * @route GET /api/bookings/owner
- * @desc Lấy danh sách đặt sân của owner
- * @access Private (Owner)
+ * @route GET /api/bookings/:id
+ * @desc Lấy chi tiết đặt sân
+ * @access Private
  */
-router.get('/owner', authenticate, getOwnerBookings);
+router.get('/:id', authenticate, getBookingById);
+
+/**
+ * @route PUT /api/bookings/:id/status
+ * @desc Cập nhật trạng thái đặt sân
+ * @access Private
+ */
+router.put('/:id/status', authenticate, updateBookingStatus);
+
+/**
+ * @route PUT /api/bookings/:id/cancel
+ * @desc Hủy đặt sân
+ * @access Private
+ */
+router.put('/:id/cancel', authenticate, cancelBooking);
 
 /**
  * @route GET /api/bookings/court/:courtId
@@ -64,27 +86,10 @@ router.get('/court/:courtId', authenticate, getCourtBookings);
 router.get('/available/:courtId', checkAvailability);
 
 /**
- * @route GET /api/bookings/:id
- * @desc Lấy chi tiết đặt sân
+ * @route POST /api/bookings/cleanup
+ * @desc Cleanup old pending bookings
  * @access Private
  */
-router.get('/:id', authenticate, getBookingById);
-
-/**
- * @route PUT /api/bookings/:id/status
- * @desc Cập nhật trạng thái đặt sân
- * @access Private (Owner)
- */
-router.put('/:id/status', [
-  authenticate,
-  check('status', 'Trạng thái không hợp lệ').isIn(['pending', 'confirmed', 'completed', 'cancelled'])
-], updateBookingStatus);
-
-/**
- * @route PUT /api/bookings/:id/cancel
- * @desc Hủy đặt sân
- * @access Private
- */
-router.put('/:id/cancel', authenticate, cancelBooking);
+router.post('/cleanup', authenticate, cleanupOldPendingBookings);
 
 module.exports = router; 

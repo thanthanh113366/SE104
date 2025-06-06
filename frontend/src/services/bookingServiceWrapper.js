@@ -56,9 +56,31 @@ const transformBookingData = (booking) => {
 const BookingServiceWrapper = {
   // Tạo đặt sân mới
   createBooking: async (courtId, bookingData) => {
-    // Gọi API /bookings, truyền courtId vào body
-    const response = await api.post('/bookings', { ...bookingData, courtId });
-    return transformBookingData(response.data.booking);
+    try {
+      console.log('BookingServiceWrapper.createBooking called with:', { courtId, bookingData });
+      
+      // Gọi API /bookings, truyền courtId vào body
+      const response = await api.post('/bookings', { ...bookingData, courtId });
+      console.log('API response status:', response.status);
+      console.log('API response data:', response.data);
+      
+      if (!response.data || !response.data.booking) {
+        console.error('Invalid API response format:', response.data);
+        throw new Error('Invalid response format from server');
+      }
+      
+      const transformedBooking = transformBookingData(response.data.booking);
+      console.log('Transformed booking:', transformedBooking);
+      
+      return transformedBooking;
+    } catch (error) {
+      console.error('Error in BookingServiceWrapper.createBooking:', error);
+      if (error.response) {
+        console.error('Error response data:', error.response.data);
+        console.error('Error response status:', error.response.status);
+      }
+      throw error;
+    }
   },
 
   // Lấy danh sách đặt sân của người dùng

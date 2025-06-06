@@ -80,6 +80,33 @@ export const authService = {
   },
 };
 
+// Các service cho thanh toán
+export const paymentService = {
+  // Tạo thanh toán MoMo
+  createMoMoPayment: async (bookingId, bookingData = null) => {
+    const payload = { bookingId };
+    if (bookingData) {
+      payload.bookingData = bookingData;
+    }
+    return api.post('/payments/momo/create', payload);
+  },
+  
+  // Kiểm tra trạng thái thanh toán
+  checkPaymentStatus: async (orderId) => {
+    return api.get(`/payments/momo/status/${orderId}`);
+  },
+  
+  // Lấy thanh toán theo booking
+  getPaymentByBooking: async (bookingId) => {
+    return api.get(`/payments/booking/${bookingId}`);
+  },
+  
+  // Lấy lịch sử thanh toán của user
+  getUserPayments: async () => {
+    return api.get('/payments/user');
+  },
+};
+
 // Các service cho người dùng
 export const userService = {
   // Lấy thông tin hồ sơ người dùng

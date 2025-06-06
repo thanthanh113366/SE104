@@ -126,10 +126,11 @@ class Payment {
     try {
       const snapshot = await getCollection(paymentCollection)
         .where('bookingId', '==', bookingId)
-        .orderBy('createdAt', 'desc')
         .get();
 
-      return snapshot.docs.map(doc => new Payment({ id: doc.id, ...doc.data() }));
+      // Sort manually in memory to avoid index requirement
+      const payments = snapshot.docs.map(doc => new Payment({ id: doc.id, ...doc.data() }));
+      return payments.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     } catch (error) {
       console.error('Lỗi khi tìm thanh toán theo đặt sân:', error);
       throw error;
@@ -151,16 +152,18 @@ class Payment {
         query = query.where('status', '==', options.status);
       }
 
-      // Sắp xếp
-      query = query.orderBy('createdAt', 'desc');
+      const snapshot = await query.get();
+      let payments = snapshot.docs.map(doc => new Payment({ id: doc.id, ...doc.data() }));
+      
+      // Sort manually in memory to avoid index requirement
+      payments = payments.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-      // Giới hạn số lượng
+      // Giới hạn số lượng sau khi sort
       if (options.limit) {
-        query = query.limit(options.limit);
+        payments = payments.slice(0, options.limit);
       }
 
-      const snapshot = await query.get();
-      return snapshot.docs.map(doc => new Payment({ id: doc.id, ...doc.data() }));
+      return payments;
     } catch (error) {
       console.error('Lỗi khi tìm thanh toán theo người dùng:', error);
       throw error;

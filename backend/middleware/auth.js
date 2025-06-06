@@ -20,27 +20,13 @@ const authenticate = async (req, res, next) => {
 
     // Xác thực token bằng Firebase Admin SDK
     const decoded = await admin.auth().verifyIdToken(token);
-    console.log('Token decoded:', { uid: decoded.uid, email: decoded.email, name: decoded.name });
 
     // Kiểm tra user tồn tại
     let user = await User.findById(decoded.uid);
-    console.log('User found in database:', user ? {
-      uid: user._id,
-      email: user.email,
-      displayName: user.displayName,
-      phoneNumber: user.phoneNumber
-    } : 'null');
 
     if (!user) {
       // Lấy thông tin đầy đủ từ Firebase Auth
       const firebaseUser = await admin.auth().getUser(decoded.uid);
-      
-      console.log('Tạo user mới với thông tin đầy đủ:', {
-        uid: decoded.uid,
-        email: decoded.email,
-        name: decoded.name || firebaseUser.displayName,
-        phone: firebaseUser.phoneNumber
-      });
       
       // Tự động tạo user với thông tin đầy đủ từ Firebase
       user = new User({
@@ -52,7 +38,6 @@ const authenticate = async (req, res, next) => {
         role: 'renter' // Mặc định là renter, có thể thay đổi sau
       });
       await user.save(decoded.uid);
-      console.log('User created successfully');
     } else {
       // Kiểm tra và cập nhật thông tin nếu thiếu
       let needUpdate = false;
@@ -74,11 +59,6 @@ const authenticate = async (req, res, next) => {
       }
       
       if (needUpdate) {
-        console.log('Updating user info:', {
-          uid: user._id,
-          displayName: user.displayName,
-          phoneNumber: user.phoneNumber
-        });
         await user.save(decoded.uid);
       }
     }
@@ -97,7 +77,6 @@ const authenticate = async (req, res, next) => {
       phoneNumber: user.phoneNumber
     };
 
-    console.log('User authenticated:', req.user);
     next();
   } catch (error) {
     if (error.code === 'auth/argument-error' || error.code === 'auth/id-token-expired' || error.code === 'auth/invalid-id-token') {

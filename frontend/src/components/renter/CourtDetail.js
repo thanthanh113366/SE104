@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { 
   Box, 
   Typography, 
@@ -39,6 +39,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import CourtServiceWrapper from '../../services/courtServiceWrapper';
 import BookingServiceWrapper from '../../services/bookingServiceWrapper';
 import ReviewServiceWrapper from '../../services/reviewServiceWrapper';
+import PaymentDialog from '../payment/PaymentDialog';
 
 // Demo data (sẽ thay bằng dữ liệu từ Firestore)
 const DEMO_COURTS = [
@@ -112,6 +113,7 @@ const CourtDetail = () => {
   const { userDetails, currentUser } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   
   const [court, setCourt] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -135,6 +137,189 @@ const CourtDetail = () => {
   const [userCompletedBookings, setUserCompletedBookings] = useState([]);
   const [availableBookingsToReview, setAvailableBookingsToReview] = useState([]);
   
+  // Payment states
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [createdBooking, setCreatedBooking] = useState(null);
+  const [paymentProcessing, setPaymentProcessing] = useState(false);
+  
+  // Payment success handler (đặt trước useEffect để tránh hoisting error)
+  const handlePaymentSuccess = useCallback(async (payment) => {
+    // Prevent multiple calls
+    if (paymentProcessing) {
+      console.log('Payment already processing, skipping...');
+      return;
+    }
+    
+    try {
+      setPaymentProcessing(true);
+      console.log('=== handlePaymentSuccess started ===');
+      console.log('Payment successful:', payment);
+      
+      // Lấy booking data từ state hoặc localStorage
+      let bookingData = createdBooking;
+      if (!bookingData) {
+        const pendingBookingStr = localStorage.getItem('pendingBooking');
+        if (pendingBookingStr) {
+          bookingData = JSON.parse(pendingBookingStr);
+          console.log('Recovered booking data from localStorage:', bookingData);
+        }
+      }
+      
+      if (!bookingData) {
+        throw new Error('Không tìm thấy thông tin booking');
+      }
+
+      // Tạo booking trong database sau khi thanh toán thành công
+      // Chỉ gửi những field cần thiết cho backend API
+      const finalBookingData = {
+        courtId: bookingData.courtId,
+        date: bookingData.date,
+        startTime: bookingData.startTime,
+        endTime: bookingData.endTime,
+        totalPrice: Number(bookingData.totalPrice) || Number(bookingData.price) || 0,
+        note: bookingData.note || ''
+      };
+
+      console.log('Đang tạo booking sau thanh toán thành công:', finalBookingData);
+
+      const response = await BookingServiceWrapper.createBooking(courtId, finalBookingData);
+      console.log('Booking creation response:', response);
+      
+      if (response && response.id) {
+        console.log('Booking created successfully with ID:', response.id);
+        setPaymentDialogOpen(false);
+        setCreatedBooking(null);
+        
+        // Clear localStorage
+        localStorage.removeItem('pendingBooking');
+        localStorage.removeItem('paymentSuccess');
+        localStorage.removeItem('paymentError');
+        
+        // Show success message
+        setBookingSuccess({
+          ...finalBookingData,
+          ...bookingData, // Include original booking data
+          totalPrice: Number(bookingData.totalPrice) || Number(bookingData.price) || 0,
+          id: response.id
+        });
+        setSuccessDialogOpen(true);
+        console.log('Success dialog opened');
+      } else {
+        console.error('Invalid response from booking creation:', response);
+        throw new Error('Không thể tạo booking sau thanh toán');
+      }
+    } catch (error) {
+      console.error('Lỗi tạo booking sau thanh toán:', error);
+      setPaymentDialogOpen(false);
+      setError('Thanh toán thành công nhưng có lỗi khi tạo đặt sân. Vui lòng liên hệ hỗ trợ.');
+    } finally {
+      setPaymentProcessing(false);
+      console.log('=== handlePaymentSuccess completed ===');
+    }
+  }, [createdBooking, courtId, paymentProcessing]);
+  
+  // Xử lý payment success từ URL params (MoMo return)
+  useEffect(() => {
+    const handlePaymentReturn = async () => {
+      const paymentStatus = searchParams.get('payment');
+      const orderId = searchParams.get('orderId');
+      
+      if (paymentStatus === 'success' && orderId) {
+        // Check if already processing to prevent duplicate calls
+        if (paymentProcessing) {
+          console.log('Payment already processing, skipping URL params handler');
+          return;
+        }
+        
+        console.log('=== Payment Success Detected from URL ===');
+        console.log('Order ID:', orderId);
+        
+        // Remove URL params immediately to prevent re-processing
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, '', newUrl);
+        
+        // Lấy booking data từ localStorage
+        const pendingBookingStr = localStorage.getItem('pendingBooking');
+        if (!pendingBookingStr) {
+          console.log('No pending booking found in localStorage');
+          return;
+        }
+        
+        let pendingBooking;
+        try {
+          pendingBooking = JSON.parse(pendingBookingStr);
+          console.log('Pending Booking:', pendingBooking);
+        } catch (error) {
+          console.error('Error parsing pending booking:', error);
+          return;
+        }
+        
+        // Set createdBooking state
+        setCreatedBooking(pendingBooking);
+        
+        // Đóng payment dialog nếu đang mở
+        setPaymentDialogOpen(false);
+        
+        // Simulate payment object
+        const paymentData = {
+          id: orderId,
+          orderId: orderId,
+          status: 'completed'
+        };
+        
+        // Gọi handlePaymentSuccess để tạo booking thật
+        await handlePaymentSuccess(paymentData);
+        
+        // Clear localStorage
+        localStorage.removeItem('pendingBooking');
+      }
+    };
+
+    if (searchParams.get('payment')) {
+      handlePaymentReturn();
+    }
+  }, [searchParams, handlePaymentSuccess, paymentProcessing]);
+
+  // Listen cho localStorage changes để detect thanh toán thành công từ tab khác
+  useEffect(() => {
+    const handleStorageChange = (e) => {
+      console.log('localStorage change detected:', e.key, e.newValue);
+      
+      // Skip if already processing payment
+      if (paymentProcessing) {
+        console.log('Payment already processing, ignoring storage event');
+        return;
+      }
+      
+      if (e.key === 'paymentSuccess' && e.newValue) {
+        console.log('Payment success detected from another tab');
+        const paymentData = JSON.parse(e.newValue);
+        
+        // Đóng payment dialog nếu đang mở
+        setPaymentDialogOpen(false);
+        
+        // Gọi handlePaymentSuccess để tạo booking
+        handlePaymentSuccess(paymentData);
+        
+        // Clear localStorage
+        localStorage.removeItem('paymentSuccess');
+      } else if (e.key === 'paymentError' && e.newValue) {
+        console.log('Payment error detected from another tab');
+        const errorData = JSON.parse(e.newValue);
+        
+        // Đóng payment dialog và show error
+        setPaymentDialogOpen(false);
+        setError(errorData.message || 'Thanh toán thất bại');
+        
+        // Clear localStorage
+        localStorage.removeItem('paymentError');
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, [handlePaymentSuccess, paymentProcessing]);
+
   // Xử lý state từ navigate (từ MyRatings)
   useEffect(() => {
     console.log('CourtDetail location.state:', location.state);
@@ -153,18 +338,33 @@ const CourtDetail = () => {
   const convertFirestoreDate = (firestoreDate) => {
     if (!firestoreDate) return null;
     
-    // Nếu là Firestore Timestamp, chuyển về Date
-    if (typeof firestoreDate.toDate === 'function') {
-      return firestoreDate.toDate();
+    try {
+      // Nếu là Firestore Timestamp, chuyển về Date
+      if (firestoreDate && typeof firestoreDate.toDate === 'function') {
+        return firestoreDate.toDate();
+      }
+      
+      // Nếu là Date string, chuyển về Date
+      if (typeof firestoreDate === 'string') {
+        const convertedDate = new Date(firestoreDate);
+        return isNaN(convertedDate.getTime()) ? null : convertedDate;
+      }
+      
+      // Nếu đã là Date object, kiểm tra tính hợp lệ
+      if (firestoreDate instanceof Date) {
+        return isNaN(firestoreDate.getTime()) ? null : firestoreDate;
+      }
+      
+      // Nếu là object có properties seconds (Firestore timestamp format)
+      if (firestoreDate && typeof firestoreDate === 'object' && firestoreDate.seconds) {
+        return new Date(firestoreDate.seconds * 1000);
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Lỗi convert Firestore date:', error);
+      return null;
     }
-    
-    // Nếu là Date string, chuyển về Date
-    if (typeof firestoreDate === 'string') {
-      return new Date(firestoreDate);
-    }
-    
-    // Nếu đã là Date, trả về nguyên bản
-    return firestoreDate;
   };
   
   // Helper function để format thời gian hiển thị
@@ -190,11 +390,16 @@ const CourtDetail = () => {
     
     if (!d1 || !d2) return false;
     
-    return (
-      d1.getFullYear() === d2.getFullYear() &&
-      d1.getMonth() === d2.getMonth() &&
-      d1.getDate() === d2.getDate()
-    );
+    try {
+      return (
+        d1.getFullYear() === d2.getFullYear() &&
+        d1.getMonth() === d2.getMonth() &&
+        d1.getDate() === d2.getDate()
+      );
+    } catch (error) {
+      console.error('Lỗi so sánh ngày:', error);
+      return false;
+    }
   };
   
   // Fetch court data
@@ -456,18 +661,18 @@ const CourtDetail = () => {
 
       setBookingLoading(true);
 
-      // Dữ liệu đặt sân
+      // Chuẩn bị dữ liệu đặt sân (chưa tạo booking thực tế)
       const bookingData = {
         userId: currentUser.uid,
         userName: userDetails?.displayName || currentUser.email?.split('@')[0] || 'Người dùng',
         userEmail: currentUser.email,
-        userPhone: userDetails?.phone || 'Chưa cung cấp',
+        userPhone: userDetails?.phoneNumber || userDetails?.phone || 'Chưa cung cấp',
         ownerId: court.ownerId,
         courtId: court.id,
         courtName: court.name,
         sport: court.sport,
         address: court.address,
-        date: selectedDate,
+        date: selectedDate.toISOString().split('T')[0], // Convert Date to string
         startTime: selectedSlot.startTime,
         endTime: selectedSlot.endTime,
         time: `${selectedSlot.startTime}-${selectedSlot.endTime}`,
@@ -475,29 +680,47 @@ const CourtDetail = () => {
         totalPrice: Number(selectedSlot.price),
         paymentMethod,
         note,
-        status: 'pending',
-        createdAt: new Date(),
-        updatedAt: new Date()
+        status: 'pending', // Sẽ thành 'confirmed' sau khi thanh toán thành công
+        createdAt: new Date().toISOString(), // Convert to string
+        updatedAt: new Date().toISOString()  // Convert to string
       };
 
-      console.log('Đang tạo đơn đặt sân với dữ liệu:', bookingData);
+      console.log('Chuẩn bị dữ liệu đặt sân:', bookingData);
 
-      try {
-        const response = await BookingServiceWrapper.createBooking(courtId, bookingData);
+      // Lưu dữ liệu booking để sử dụng sau khi thanh toán thành công
+      setCreatedBooking(bookingData);
+      
+      // Lưu vào localStorage để cross-tab communication
+      localStorage.setItem('pendingBooking', JSON.stringify(bookingData));
+      
+      setBookingOpen(false);
+      
+      // Kiểm tra payment method
+      if (paymentMethod === 'momo') {
+        // Mở payment dialog cho MoMo
+        setPaymentDialogOpen(true);
+      } else {
+        // Tạo booking trực tiếp cho cash/banking
+        const response = await BookingServiceWrapper.createBooking(courtId, {
+          courtId: bookingData.courtId,
+          date: bookingData.date,
+          startTime: bookingData.startTime,
+          endTime: bookingData.endTime,
+          totalPrice: bookingData.totalPrice,
+          note: bookingData.note || ''
+        });
+        
         if (response && response.id) {
-          setBookingSuccess(bookingData);
-          setBookingOpen(false);
+          setBookingSuccess({
+            ...bookingData,
+            id: response.id
+          });
           setSuccessDialogOpen(true);
-        } else {
-          throw new Error('Không nhận được booking mới từ server');
         }
-      } catch (bookingError) {
-        console.error('Lỗi khi đặt sân:', bookingError);
-        setError('Rất tiếc! Đã có lỗi xảy ra khi đặt sân. Vui lòng thử lại sau hoặc liên hệ hỗ trợ.');
       }
     } catch (error) {
-      console.error('Lỗi khi đặt sân:', error);
-      setError('Rất tiếc! Đã có lỗi xảy ra khi đặt sân. Vui lòng thử lại sau hoặc liên hệ hỗ trợ.');
+      console.error('Lỗi khi chuẩn bị đặt sân:', error);
+      setError('Rất tiếc! Đã có lỗi xảy ra. Vui lòng thử lại sau.');
     } finally {
       setBookingLoading(false);
     }
@@ -506,6 +729,25 @@ const CourtDetail = () => {
   const handleSuccessDialogClose = () => {
     setSuccessDialogOpen(false);
     window.location.reload();
+  };
+
+  // Payment handlers
+
+  const handlePaymentError = (error) => {
+    console.error('Payment error:', error);
+    setPaymentDialogOpen(false);
+    setCreatedBooking(null); // Xóa dữ liệu booking chưa hoàn tất
+    
+    // Show error message - không tạo booking nếu thanh toán thất bại
+    setError('Thanh toán không thành công. Vui lòng thử lại để đặt sân.');
+  };
+
+  const handlePaymentDialogClose = () => {
+    setPaymentDialogOpen(false);
+    setCreatedBooking(null); // Xóa dữ liệu booking chưa hoàn tất
+    
+    // Không cần reload vì chưa có booking nào được tạo
+    console.log('Payment dialog closed - no booking created');
   };
   
   // Handlers cho review
@@ -1100,7 +1342,7 @@ const CourtDetail = () => {
                     display: 'flex', 
                     alignItems: 'center'
                   }}>
-                    💰 Giá: {formatPrice(bookingSuccess.price)}
+                    💰 Giá: {formatPrice(bookingSuccess.totalPrice || bookingSuccess.price)}
                   </Typography>
                 </Grid>
               </Grid>
@@ -1108,7 +1350,7 @@ const CourtDetail = () => {
               <Divider sx={{ my: 2 }} />
 
               <Typography variant="body1" paragraph>
-                Chủ sân sẽ liên hệ với bạn qua số điện thoại {userDetails?.phone || 'đã đăng ký'} để xác nhận đơn đặt sân.
+                Chủ sân sẽ liên hệ với bạn qua số điện thoại {userDetails?.phoneNumber || userDetails?.phone || 'đã đăng ký'} để xác nhận đơn đặt sân.
               </Typography>
               
               <Typography variant="body1" color="primary">
@@ -1133,6 +1375,15 @@ const CourtDetail = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Payment Dialog */}
+      <PaymentDialog
+        open={paymentDialogOpen}
+        onClose={handlePaymentDialogClose}
+        booking={createdBooking}
+        onPaymentSuccess={handlePaymentSuccess}
+        onPaymentError={handlePaymentError}
+      />
     </Box>
   );
 };

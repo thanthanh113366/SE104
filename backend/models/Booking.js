@@ -108,25 +108,19 @@ class Booking {
    */
   static async findByUser(userId) {
     try {
-      console.log('Đang tìm bookings cho user:', userId);
-      
       const snapshot = await getCollection(bookingCollection)
         .where('userId', '==', userId)
         .orderBy('createdAt', 'desc')  // Chỉ dùng 1 orderBy
         .get();
-
-      console.log('Tìm thấy', snapshot.docs.length, 'bookings');
       
       const bookings = snapshot.docs.map(doc => {
         const data = doc.data();
-        console.log('Booking data:', { id: doc.id, status: data.status, courtName: data.courtName });
         return new Booking({ id: doc.id, ...data });
       });
 
       return bookings;
     } catch (error) {
       console.error('Lỗi khi tìm đặt sân theo người dùng:', error);
-      console.error('Error details:', error.code, error.message);
       throw error;
     }
   }

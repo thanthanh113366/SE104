@@ -349,23 +349,14 @@ class Court {
   }
 
   async checkAvailability(date, startTime, endTime) {
-    // Lấy tất cả booking của sân này trong ngày đó
-    const bookingsRef = getCollection('bookings');
-    const snapshot = await bookingsRef
-      .where('courtId', '==', this.id)
-      .where('date', '==', date)
-      .get();
-
-    for (const doc of snapshot.docs) {
-      const booking = doc.data();
-      // Nếu thời gian đặt mới giao với thời gian đã đặt
-      if (
-        !(endTime <= booking.startTime || startTime >= booking.endTime)
-      ) {
-        return false; // Đã có booking trùng
-      }
+    try {
+      const Booking = require('./Booking');
+      const isBooked = await Booking.isTimeSlotBooked(this.id, new Date(date), startTime, endTime);
+      return !isBooked; // Return true nếu available (không bị booked)
+    } catch (error) {
+      console.error('Lỗi khi check availability:', error);
+      throw error;
     }
-    return true; // Không trùng, có thể đặt
   }
 }
 

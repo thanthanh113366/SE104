@@ -3,25 +3,47 @@ const router = express.Router();
 const { check } = require('express-validator');
 const { authenticate } = require('../middleware/auth');
 const {
-  createPayment,
+  createMoMoPayment,
+  handleMoMoCallback,
+  handleMoMoReturn,
+  checkMoMoPaymentStatus,
   getPaymentById,
   getPaymentByBooking,
   getUserPayments,
   getOwnerPayments,
-  refundPayment,
-  handleWebhook
+  refundPayment
 } = require('../controllers/paymentController');
 
 /**
- * @route POST /api/payments
- * @desc Tạo thanh toán mới
+ * @route POST /api/payments/momo/create
+ * @desc Tạo thanh toán MoMo
  * @access Private
  */
-router.post('/', [
+router.post('/momo/create', [
   authenticate,
-  check('bookingId', 'ID đặt sân không được để trống').notEmpty(),
-  check('paymentMethod', 'Phương thức thanh toán không được để trống').notEmpty()
-], createPayment);
+  check('bookingId', 'ID đặt sân không được để trống').notEmpty()
+], createMoMoPayment);
+
+/**
+ * @route POST /api/payments/momo/callback
+ * @desc Xử lý callback từ MoMo
+ * @access Public (MoMo server)
+ */
+router.post('/momo/callback', handleMoMoCallback);
+
+/**
+ * @route GET /api/payments/momo/return
+ * @desc Xử lý return URL từ MoMo
+ * @access Public
+ */
+router.get('/momo/return', handleMoMoReturn);
+
+/**
+ * @route GET /api/payments/momo/status/:orderId
+ * @desc Kiểm tra trạng thái thanh toán MoMo
+ * @access Private
+ */
+router.get('/momo/status/:orderId', authenticate, checkMoMoPaymentStatus);
 
 /**
  * @route GET /api/payments/:id
@@ -58,11 +80,6 @@ router.get('/owner', authenticate, getOwnerPayments);
  */
 router.post('/:id/refund', authenticate, refundPayment);
 
-/**
- * @route POST /api/payments/webhook
- * @desc Webhook xử lý sự kiện từ Stripe
- * @access Public
- */
-router.post('/webhook', handleWebhook);
+// Legacy Stripe webhook removed - now using MoMo
 
 module.exports = router; 

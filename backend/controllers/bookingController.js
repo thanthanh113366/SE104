@@ -58,15 +58,36 @@ const createBooking = async (req, res) => {
       startTime,
       endTime,
       totalPrice,
-      note,
+      notes: note,
       status: 'pending'
     });
 
-    await booking.save();
+    const savedBookingId = await booking.save();
+
+    // Get the full booking object with ID
+    booking.id = savedBookingId;
+    const fullBooking = {
+      id: savedBookingId,
+      courtId: booking.courtId,
+      userId: booking.userId,
+      ownerId: booking.ownerId,
+      userName: booking.userName,
+      userPhone: booking.userPhone,
+      userEmail: booking.userEmail,
+      courtName: booking.courtName,
+      date: booking.date,
+      startTime: booking.startTime,
+      endTime: booking.endTime,
+      totalPrice: booking.totalPrice,
+      notes: booking.notes,
+      status: booking.status,
+      createdAt: booking.createdAt,
+      updatedAt: booking.updatedAt
+    };
 
     res.status(201).json({
       message: 'Đặt sân thành công',
-      booking
+      booking: fullBooking
     });
   } catch (error) {
     console.error('Lỗi đặt sân:', error);
@@ -108,40 +129,22 @@ const getBookingById = async (req, res) => {
  */
 const getUserBookings = async (req, res) => {
   try {
-    console.log('getUserBookings called');
-    console.log('User from token:', req.user);
-    
     if (!req.user || !req.user.uid) {
-      console.log('User not authenticated properly');
       return res.status(401).json({ message: 'Người dùng chưa được xác thực' });
     }
 
-    console.log('Getting bookings for user:', req.user.uid);
-    
     // Sử dụng Firestore method từ Booking model
     const bookings = await Booking.findByUser(req.user.uid);
-    
-    console.log('Found bookings:', bookings.length);
-    console.log('Bookings data:', bookings.map(b => ({ 
-      id: b.id, 
-      status: b.status, 
-      courtName: b.courtName,
-      date: b.date 
-    })));
 
     res.json({
       bookings,
       totalBookings: bookings.length
     });
   } catch (error) {
-    console.error('Error in getUserBookings:');
-    console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
-    console.error('Error code:', error.code);
+    console.error('Error in getUserBookings:', error.message);
     res.status(500).json({ 
       message: 'Lỗi server', 
-      error: error.message,
-      details: error.stack 
+      error: error.message
     });
   }
 };
@@ -153,49 +156,30 @@ const getUserBookings = async (req, res) => {
  */
 const getReviewableBookings = async (req, res) => {
   try {
-    console.log('getReviewableBookings called for user:', req.user.uid);
-    
     // Lấy tất cả bookings của user
-    console.log('Fetching bookings for user...');
     const bookings = await Booking.findByUser(req.user.uid);
-    console.log('Total bookings found:', bookings.length);
     
     // Lọc các booking có thể đánh giá (confirmed hoặc completed và chưa được đánh giá)
     const reviewableBookings = [];
     
     for (const booking of bookings) {
-      console.log('Checking booking:', {
-        id: booking.id,
-        status: booking.status,
-        courtName: booking.courtName
-      });
-      
       // Chỉ các booking confirmed hoặc completed mới có thể đánh giá
       if (booking.status === 'confirmed' || booking.status === 'completed' || booking.status === 'Đã xác nhận') {
-        console.log('Booking is eligible for review, checking if already reviewed...');
-        
         try {
           // Kiểm tra xem đã đánh giá chưa
           const Review = require('../models/Review');
           const existingReview = await Review.findByBooking(booking.id);
           
           if (!existingReview) {
-            console.log('No existing review found, adding to reviewable list');
             reviewableBookings.push(booking);
-          } else {
-            console.log('Already reviewed');
           }
         } catch (reviewError) {
           console.error('Error checking review for booking:', booking.id, reviewError);
           // Nếu có lỗi khi check review, vẫn cho phép review
           reviewableBookings.push(booking);
         }
-      } else {
-        console.log('Booking status not eligible:', booking.status);
       }
     }
-
-    console.log('Found reviewable bookings:', reviewableBookings.length);
 
     res.json({
       bookings: reviewableBookings,
@@ -203,7 +187,6 @@ const getReviewableBookings = async (req, res) => {
     });
   } catch (error) {
     console.error('Error in getReviewableBookings:', error);
-    console.error('Error stack:', error.stack);
     res.status(500).json({ 
       message: 'Lỗi server', 
       error: error.message 
@@ -428,6 +411,45 @@ const checkAvailability = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Cleanup old pending bookings (helper for testing)
+ * @route   POST /api/bookings/cleanup
+ * @access  Private
+ */
+const cleanupOldPendingBookings = async (req, res) => {
+  try {
+    console.log('Cleaning up old pending bookings...');
+    
+    // Get all pending bookings older than 10 minutes
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    
+    const snapshot = await db.collection('bookings')
+      .where('status', '==', 'pending')
+      .where('createdAt', '<', tenMinutesAgo)
+      .get();
+    
+    const batch = db.batch();
+    snapshot.docs.forEach(doc => {
+      batch.update(doc.ref, { 
+        status: 'cancelled', 
+        cancellationReason: 'Auto-cancelled due to timeout',
+        updatedAt: new Date()
+      });
+    });
+    
+    await batch.commit();
+    console.log(`Cleaned up ${snapshot.docs.length} old pending bookings`);
+    
+    res.json({
+      message: 'Cleanup completed',
+      cleanedCount: snapshot.docs.length
+    });
+  } catch (error) {
+    console.error('Error cleaning up old bookings:', error);
+    res.status(500).json({ message: 'Cleanup failed' });
+  }
+};
+
 module.exports = {
   createBooking,
   getBookingById,
@@ -437,5 +459,6 @@ module.exports = {
   cancelBooking,
   getCourtBookings,
   checkAvailability,
-  getReviewableBookings
+  getReviewableBookings,
+  cleanupOldPendingBookings
 }; 
