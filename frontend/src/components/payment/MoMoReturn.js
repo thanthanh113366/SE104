@@ -1,79 +1,159 @@
 import React, { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Box, CircularProgress, Typography } from '@mui/material';
+import {
+  Box,
+  Typography,
+  CircularProgress,
+  Paper,
+  Container
+} from '@mui/material';
+import { CheckCircle as CheckCircleIcon } from '@mui/icons-material';
 
 const MoMoReturn = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
-    const handleMoMoReturn = () => {
+    const handleMoMoReturn = async () => {
       // Lấy thông tin từ URL params
       const orderId = searchParams.get('orderId');
       const resultCode = searchParams.get('resultCode');
       const extraData = searchParams.get('extraData');
+      const message = searchParams.get('message');
 
       console.log('MoMo Return - orderId:', orderId);
       console.log('MoMo Return - resultCode:', resultCode);
       console.log('MoMo Return - extraData:', extraData);
+      console.log('MoMo Return - message:', message);
 
-      let courtId = null;
-      let redirectUrl = '/renter';
+      if (resultCode === '0') {
+        // Thanh toán thành công
+        console.log('Payment successful, notifying parent tab...');
+        
+        // Tạo payment object để gửi về tab gốc
+        const paymentData = {
+          id: orderId,
+          orderId: orderId,
+          status: 'completed',
+          message: message,
+          timestamp: new Date().toISOString()
+        };
 
-      // Parse extraData để lấy courtId
-      if (extraData) {
-        try {
-          const data = JSON.parse(decodeURIComponent(extraData));
-          courtId = data.courtId;
-        } catch (error) {
-          console.error('Error parsing extraData:', error);
+        // Gửi thông tin về tab gốc qua localStorage
+        console.log('Setting paymentSuccess in localStorage:', paymentData);
+        localStorage.setItem('paymentSuccess', JSON.stringify(paymentData));
+        
+        // Trigger storage event manually cho same tab (workaround)
+        console.log('Dispatching storage event manually...');
+        window.dispatchEvent(new StorageEvent('storage', {
+          key: 'paymentSuccess',
+          newValue: JSON.stringify(paymentData),
+          oldValue: null,
+          storageArea: localStorage
+        }));
+
+        // Focus về tab gốc nếu có thể
+        if (window.opener && !window.opener.closed) {
+          console.log('Focusing back to parent tab...');
+          window.opener.focus();
         }
-      }
 
-      // Tạo redirect URL
-      if (courtId) {
-        if (resultCode === '0') {
-          // Thanh toán thành công
-          redirectUrl = `/renter/court/${courtId}?payment=success&orderId=${orderId}`;
-        } else {
-          // Thanh toán thất bại
-          redirectUrl = `/renter/court/${courtId}?payment=failed&orderId=${orderId}`;
-        }
+        // Auto close tab sau khi thông báo thành công
+        setTimeout(() => {
+          console.log('Auto closing payment tab...');
+          window.close();
+          
+          // Fallback: nếu không đóng được tab, redirect về trang chính
+          setTimeout(() => {
+            navigate('/renter');
+          }, 1000);
+        }, 1500); // Giảm thời gian xuống 1.5 giây để UX mượt mà hơn
+
       } else {
-        // Không có courtId, redirect về trang chính
-        redirectUrl = `/renter?payment=${resultCode === '0' ? 'success' : 'failed'}`;
-      }
+        // Thanh toán thất bại
+        console.log('Payment failed:', message);
+        
+        const errorData = {
+          status: 'failed',
+          message: message || 'Thanh toán thất bại',
+          resultCode: resultCode
+        };
 
-      console.log('Redirecting to:', redirectUrl);
-      
-      // Redirect sau 2 giây để user thấy loading
-      setTimeout(() => {
-        navigate(redirectUrl, { replace: true });
-      }, 2000);
+        localStorage.setItem('paymentError', JSON.stringify(errorData));
+        
+        // Trigger storage event manually
+        window.dispatchEvent(new StorageEvent('storage', {
+          key: 'paymentError',
+          newValue: JSON.stringify(errorData),
+          oldValue: null,
+          storageArea: localStorage
+        }));
+
+        // Focus về tab gốc nếu có thể
+        if (window.opener && !window.opener.closed) {
+          console.log('Focusing back to parent tab...');
+          window.opener.focus();
+        }
+
+        setTimeout(() => {
+          console.log('Auto closing payment tab...');
+          window.close();
+          setTimeout(() => {
+            navigate('/renter');
+          }, 1000);
+        }, 2000); // Thất bại thì để lâu hơn một chút
+      }
     };
 
     handleMoMoReturn();
   }, [navigate, searchParams]);
 
+  const resultCode = searchParams.get('resultCode');
+  const isSuccess = resultCode === '0';
+
   return (
-    <Box
-      sx={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        minHeight: '100vh',
-        gap: 2
-      }}
-    >
-      <CircularProgress size={60} />
-      <Typography variant="h6">
-        Đang xử lý kết quả thanh toán...
-      </Typography>
-      <Typography variant="body2" color="text.secondary">
-        Vui lòng đợi trong giây lát
-      </Typography>
-    </Box>
+    <Container maxWidth="sm">
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          textAlign: 'center'
+        }}
+      >
+        <Paper sx={{ p: 4, textAlign: 'center' }}>
+          {isSuccess ? (
+            <>
+              <CheckCircleIcon sx={{ fontSize: 64, color: 'success.main', mb: 2 }} />
+              <Typography variant="h5" gutterBottom color="success.main">
+                Thanh toán thành công!
+              </Typography>
+              <Typography variant="body1" color="text.secondary">
+                Đang quay về trang chính...
+              </Typography>
+            </>
+          ) : (
+            <>
+              <Typography variant="h5" gutterBottom color="error">
+                Thanh toán thất bại
+              </Typography>
+              <Typography variant="body1" color="text.secondary">
+                {searchParams.get('message') || 'Đã có lỗi xảy ra'}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                Đang quay về trang chính...
+              </Typography>
+            </>
+          )}
+          
+          <Box sx={{ mt: 3 }}>
+            <CircularProgress size={24} />
+          </Box>
+        </Paper>
+      </Box>
+    </Container>
   );
 };
 

@@ -326,19 +326,13 @@ const getCourtBookings = async (req, res) => {
 
     // Sử dụng Firebase Firestore
     const bookingsRef = db.collection('bookings');
+    
+    // Tạm thời bỏ date filter để debug
     let query = bookingsRef.where('courtId', '==', courtId);
     
     if (status) {
       query = query.where('status', '==', status);
     }
-    if (date) {
-      // Chuyển đổi date string thành Date object nếu cần
-      const queryDate = new Date(date);
-      query = query.where('date', '==', queryDate);
-    }
-
-    // Thêm sắp xếp
-    query = query.orderBy('createdAt', 'desc');
 
     // Thực hiện query
     const snapshot = await query.get();
@@ -371,16 +365,39 @@ const getCourtBookings = async (req, res) => {
       bookings.push(booking);
     });
 
-    // Phân trang thủ công vì Firestore không hỗ trợ skip
+    // Filter thêm theo ngày cụ thể nếu có
+    let filteredBookings = bookings;
+    if (date) {
+      const queryDateStr = date; // date param đã là string "2025-06-06"
+      
+              filteredBookings = bookings.filter(booking => {
+        if (!booking.date) return false;
+        
+        let bookingDateStr;
+        if (typeof booking.date === 'string') {
+          // Nếu date là string "2025-06-06"
+          bookingDateStr = booking.date;
+        } else if (booking.date instanceof Date) {
+          // Nếu date là Date object
+          bookingDateStr = booking.date.toISOString().split('T')[0];
+        } else {
+          return false;
+        }
+        
+                return bookingDateStr === queryDateStr;
+      });
+    }
+
+    // Phân trang thủ công
     const startIndex = (page - 1) * limit;
     const endIndex = startIndex + Number(limit);
-    const paginatedBookings = bookings.slice(startIndex, endIndex);
+    const paginatedBookings = filteredBookings.slice(startIndex, endIndex);
 
     res.json({
       bookings: paginatedBookings,
       currentPage: Number(page),
-      totalPages: Math.ceil(bookings.length / limit),
-      totalBookings: bookings.length
+      totalPages: Math.ceil(filteredBookings.length / limit),
+      totalBookings: filteredBookings.length
     });
   } catch (error) {
     console.error('Lỗi lấy danh sách đặt sân:', error);

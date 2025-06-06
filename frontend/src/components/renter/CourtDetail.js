@@ -295,11 +295,16 @@ const CourtDetail = () => {
         console.log('Payment success detected from another tab');
         const paymentData = JSON.parse(e.newValue);
         
-        // Đóng payment dialog nếu đang mở
+        // Đóng payment dialog ngay lập tức để tạo cảm giác responsive
         setPaymentDialogOpen(false);
         
+        // Show loading state trước khi create booking
+        setLoading(true);
+        
         // Gọi handlePaymentSuccess để tạo booking
-        handlePaymentSuccess(paymentData);
+        handlePaymentSuccess(paymentData).finally(() => {
+          setLoading(false);
+        });
         
         // Clear localStorage
         localStorage.removeItem('paymentSuccess');
@@ -444,18 +449,13 @@ const CourtDetail = () => {
         if (!court) return;
         console.log('Đang lấy các lịch đặt sân hiện có cho sân:', courtId);
         
-        const response = await BookingServiceWrapper.getCourtBookings(courtId);
+        const response = await BookingServiceWrapper.getCourtBookings(courtId, selectedDate);
         if (response && response.bookings) {
           console.log('Bookings từ server:', response.bookings);
           
-          // Lọc booking cho ngày đã chọn
-          const bookingsForSelectedDate = response.bookings.filter(booking => {
-            if (!booking.date) return false;
-            return isSameDay(booking.date, selectedDate);
-          });
-          
-          console.log('Bookings cho ngày đã chọn:', bookingsForSelectedDate);
-          setExistingBookings(bookingsForSelectedDate);
+          // Backend đã filter theo ngày rồi, chỉ cần set trực tiếp
+          console.log('Bookings cho ngày đã chọn:', response.bookings);
+          setExistingBookings(response.bookings);
         } else {
           setExistingBookings([]);
         }
@@ -585,17 +585,9 @@ const CourtDetail = () => {
     const openTime = openHour * 60 + openMinute;
     const closeTime = closeHour * 60 + closeMinute;
     
-    // Lọc booking chỉ cho ngày đã chọn
+    // existingBookings đã được filter theo ngày ở backend rồi
     const selectedDateStr = selectedDate.toISOString().split('T')[0];
-    const bookingsForSelectedDate = existingBookings.filter(booking => {
-      const bookingDate = booking.date;
-      if (!bookingDate) return false;
-      
-      const bookingDateStr = bookingDate.toISOString().split('T')[0];
-      return bookingDateStr === selectedDateStr;
-    });
-    
-    console.log(`Booking cho ngày ${selectedDateStr}:`, bookingsForSelectedDate);
+    const bookingsForSelectedDate = existingBookings;
     
     // Tạo các khung 1 giờ
     for (let time = openTime; time < closeTime; time += 60) {
@@ -627,7 +619,6 @@ const CourtDetail = () => {
         );
         
         if (bookingForThisSlot) {
-          console.log(`Slot ${startTimeString}-${endTimeString} is booked with status:`, bookingForThisSlot.status);
           timeSlot.status = 'booked';
           timeSlot.bookingStatus = bookingForThisSlot.status;
           timeSlot.isWithinPendingWindow = bookingForThisSlot.isWithinPendingWindow;
@@ -726,9 +717,21 @@ const CourtDetail = () => {
     }
   };
   
-  const handleSuccessDialogClose = () => {
+  const handleSuccessDialogClose = async () => {
     setSuccessDialogOpen(false);
-    window.location.reload();
+    
+    // Refresh existing bookings để hiện booking vừa tạo
+    try {
+      if (court) {
+        const response = await BookingServiceWrapper.getCourtBookings(courtId, selectedDate);
+        if (response && response.bookings) {
+          // Backend đã filter theo ngày rồi
+          setExistingBookings(response.bookings);
+        }
+      }
+    } catch (error) {
+      console.error('Lỗi khi refresh bookings:', error);
+    }
   };
 
   // Payment handlers
@@ -747,7 +750,6 @@ const CourtDetail = () => {
     setCreatedBooking(null); // Xóa dữ liệu booking chưa hoàn tất
     
     // Không cần reload vì chưa có booking nào được tạo
-    console.log('Payment dialog closed - no booking created');
   };
   
   // Handlers cho review
@@ -991,13 +993,14 @@ const CourtDetail = () => {
                         statusColor = '#9e9e9e'; // Xám
                         statusBgColor = '#f5f5f5'; // Xám nhạt
                         statusText = 'Đang chờ xác nhận';
-                        isDisabled = false;
+                        isDisabled = true; // Sửa thành true để không cho đặt
                       }
                     } else {
-                      statusColor = '#4caf50'; // Xanh lá
-                      statusBgColor = '#e8f5e9'; // Xanh lá nhạt
-                      statusText = 'Còn trống';
-                      isDisabled = false;
+                      // Các trạng thái khác của booking (cancelled, etc.)
+                      statusColor = '#9e9e9e'; // Xám
+                      statusBgColor = '#f5f5f5'; // Xám nhạt
+                      statusText = 'Đang chờ xác nhận';
+                      isDisabled = true;
                     }
                   } else {
                     statusColor = '#4caf50'; // Xanh lá

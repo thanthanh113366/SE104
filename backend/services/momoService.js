@@ -13,7 +13,7 @@ class MoMoService {
     this.accessKey = process.env.MOMO_ACCESS_KEY || "klm05TvNBzhg7h7j";
     this.secretKey = process.env.MOMO_SECRET_KEY || "at67qH6mk8w5Y1nAyMoYKMWACiEi2bsa";
     this.endpoint = process.env.MOMO_ENDPOINT || "https://test-payment.momo.vn/v2/gateway/api/create";
-    this.returnUrl = process.env.MOMO_RETURN_URL || "http://localhost:3000/payment/return";
+    this.returnUrl = process.env.MOMO_RETURN_URL || "http://localhost:3000/payment/momo-return";
     this.notifyUrl = process.env.MOMO_NOTIFY_URL || "http://localhost:5000/api/payments/momo/callback";
   }
 

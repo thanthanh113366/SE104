@@ -117,9 +117,19 @@ const BookingServiceWrapper = {
   },
 
   // Lấy danh sách đặt sân của một sân
-  getCourtBookings: async (courtId) => {
-    // Sử dụng endpoint chính xác
-    const response = await api.get(`/bookings/court/${courtId}`);
+  getCourtBookings: async (courtId, date = null) => {
+    // Tạo params object
+    const params = { limit: 50 }; // Giới hạn 50 bookings là đủ cho 1 ngày
+    
+    // Nếu có date, chỉ lấy bookings cho ngày đó
+    if (date) {
+      const formattedDate = date instanceof Date 
+        ? date.toISOString().split('T')[0]
+        : date;
+      params.date = formattedDate;
+    }
+    
+    const response = await api.get(`/bookings/court/${courtId}`, { params });
     console.log('Response from bookings API:', response.data);
     
     if (!response.data || !response.data.bookings) {

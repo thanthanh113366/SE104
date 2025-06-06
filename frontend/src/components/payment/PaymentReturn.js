@@ -47,15 +47,22 @@ const PaymentReturn = () => {
           storageArea: localStorage
         }));
 
-        // Show success message briefly then close
+        // Focus về tab gốc nếu có thể
+        if (window.opener && !window.opener.closed) {
+          console.log('Focusing back to parent tab...');
+          window.opener.focus();
+        }
+
+        // Auto close tab sau khi thông báo thành công
         setTimeout(() => {
-          window.close(); // Đóng tab này
+          console.log('Auto closing payment tab...');
+          window.close();
           
           // Fallback: nếu không đóng được tab, redirect về trang chính
           setTimeout(() => {
             navigate('/renter');
           }, 1000);
-        }, 2000);
+        }, 1500); // Giảm thời gian xuống 1.5 giây để UX mượt mà hơn
 
       } else {
         // Thanh toán thất bại
@@ -77,12 +84,19 @@ const PaymentReturn = () => {
           storageArea: localStorage
         }));
 
+        // Focus về tab gốc nếu có thể
+        if (window.opener && !window.opener.closed) {
+          console.log('Focusing back to parent tab...');
+          window.opener.focus();
+        }
+
         setTimeout(() => {
+          console.log('Auto closing payment tab...');
           window.close();
           setTimeout(() => {
             navigate('/renter');
           }, 1000);
-        }, 2000);
+        }, 2000); // Thất bại thì để lâu hơn một chút
       }
     };
 
@@ -112,7 +126,7 @@ const PaymentReturn = () => {
                 Thanh toán thành công!
               </Typography>
               <Typography variant="body1" color="text.secondary">
-                Đang chuyển về trang chính...
+                Đang quay về trang chính...
               </Typography>
             </>
           ) : (
@@ -122,6 +136,9 @@ const PaymentReturn = () => {
               </Typography>
               <Typography variant="body1" color="text.secondary">
                 {searchParams.get('message') || 'Đã có lỗi xảy ra'}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                Đang quay về trang chính...
               </Typography>
             </>
           )}
