@@ -146,14 +146,11 @@ const CourtDetail = () => {
   const handlePaymentSuccess = useCallback(async (payment) => {
     // Prevent multiple calls
     if (paymentProcessing) {
-      console.log('Payment already processing, skipping...');
       return;
     }
     
     try {
       setPaymentProcessing(true);
-      console.log('=== handlePaymentSuccess started ===');
-      console.log('Payment successful:', payment);
       
       // Lấy booking data từ state hoặc localStorage
       let bookingData = createdBooking;
@@ -161,7 +158,6 @@ const CourtDetail = () => {
         const pendingBookingStr = localStorage.getItem('pendingBooking');
         if (pendingBookingStr) {
           bookingData = JSON.parse(pendingBookingStr);
-          console.log('Recovered booking data from localStorage:', bookingData);
         }
       }
       
@@ -180,13 +176,9 @@ const CourtDetail = () => {
         note: bookingData.note || ''
       };
 
-      console.log('Đang tạo booking sau thanh toán thành công:', finalBookingData);
-
       const response = await BookingServiceWrapper.createBooking(courtId, finalBookingData);
-      console.log('Booking creation response:', response);
       
       if (response && response.id) {
-        console.log('Booking created successfully with ID:', response.id);
         setPaymentDialogOpen(false);
         setCreatedBooking(null);
         
@@ -203,7 +195,6 @@ const CourtDetail = () => {
           id: response.id
         });
         setSuccessDialogOpen(true);
-        console.log('Success dialog opened');
       } else {
         console.error('Invalid response from booking creation:', response);
         throw new Error('Không thể tạo booking sau thanh toán');
@@ -214,7 +205,6 @@ const CourtDetail = () => {
       setError('Thanh toán thành công nhưng có lỗi khi tạo đặt sân. Vui lòng liên hệ hỗ trợ.');
     } finally {
       setPaymentProcessing(false);
-      console.log('=== handlePaymentSuccess completed ===');
     }
   }, [createdBooking, courtId, paymentProcessing]);
   
@@ -227,12 +217,8 @@ const CourtDetail = () => {
       if (paymentStatus === 'success' && orderId) {
         // Check if already processing to prevent duplicate calls
         if (paymentProcessing) {
-          console.log('Payment already processing, skipping URL params handler');
           return;
         }
-        
-        console.log('=== Payment Success Detected from URL ===');
-        console.log('Order ID:', orderId);
         
         // Remove URL params immediately to prevent re-processing
         const newUrl = window.location.pathname;
@@ -241,14 +227,12 @@ const CourtDetail = () => {
         // Lấy booking data từ localStorage
         const pendingBookingStr = localStorage.getItem('pendingBooking');
         if (!pendingBookingStr) {
-          console.log('No pending booking found in localStorage');
           return;
         }
         
         let pendingBooking;
         try {
           pendingBooking = JSON.parse(pendingBookingStr);
-          console.log('Pending Booking:', pendingBooking);
         } catch (error) {
           console.error('Error parsing pending booking:', error);
           return;
@@ -283,16 +267,12 @@ const CourtDetail = () => {
   // Listen cho localStorage changes để detect thanh toán thành công từ tab khác
   useEffect(() => {
     const handleStorageChange = (e) => {
-      console.log('localStorage change detected:', e.key, e.newValue);
-      
       // Skip if already processing payment
       if (paymentProcessing) {
-        console.log('Payment already processing, ignoring storage event');
         return;
       }
       
       if (e.key === 'paymentSuccess' && e.newValue) {
-        console.log('Payment success detected from another tab');
         const paymentData = JSON.parse(e.newValue);
         
         // Đóng payment dialog ngay lập tức để tạo cảm giác responsive
@@ -309,7 +289,6 @@ const CourtDetail = () => {
         // Clear localStorage
         localStorage.removeItem('paymentSuccess');
       } else if (e.key === 'paymentError' && e.newValue) {
-        console.log('Payment error detected from another tab');
         const errorData = JSON.parse(e.newValue);
         
         // Đóng payment dialog và show error
@@ -327,10 +306,7 @@ const CourtDetail = () => {
 
   // Xử lý state từ navigate (từ MyRatings)
   useEffect(() => {
-    console.log('CourtDetail location.state:', location.state);
-    
     if (location.state?.openReviewDialog && location.state?.booking) {
-      console.log('Opening review dialog with booking:', location.state.booking);
       setSelectedBookingForReview(location.state.booking);
       setWriteReviewOpen(true);
       
@@ -447,14 +423,10 @@ const CourtDetail = () => {
     const fetchExistingBookings = async () => {
       try {
         if (!court) return;
-        console.log('Đang lấy các lịch đặt sân hiện có cho sân:', courtId);
         
         const response = await BookingServiceWrapper.getCourtBookings(courtId, selectedDate);
         if (response && response.bookings) {
-          console.log('Bookings từ server:', response.bookings);
-          
           // Backend đã filter theo ngày rồi, chỉ cần set trực tiếp
-          console.log('Bookings cho ngày đã chọn:', response.bookings);
           setExistingBookings(response.bookings);
         } else {
           setExistingBookings([]);
@@ -511,49 +483,31 @@ const CourtDetail = () => {
       try {
         if (!court || !currentUser) return;
         
-        console.log('=== DEBUG: Đang lấy booking history cho user ===');
-        console.log('Court ID:', courtId);
-        console.log('User ID:', currentUser.uid);
-        
         // Lấy tất cả booking của user
         const response = await BookingServiceWrapper.getUserBookings(currentUser.uid);
-        console.log('=== DEBUG: Response từ getUserBookings ===', response);
         
         if (response && response.bookings) {
-          console.log('=== DEBUG: Tất cả bookings của user ===', response.bookings);
-          
           // Lọc booking cho sân này và đã hoàn thành
           const completedBookingsForThisCourt = response.bookings.filter(booking => {
-            console.log(`Checking booking ${booking.id}: courtId=${booking.courtId}, status=${booking.status}`);
             return booking.courtId === courtId && booking.status === 'completed';
           });
-          
-          console.log('=== DEBUG: Completed bookings cho sân này ===', completedBookingsForThisCourt);
           setUserCompletedBookings(completedBookingsForThisCourt);
           
           // Kiểm tra booking nào chưa được đánh giá
           const bookingsToReview = [];
           for (const booking of completedBookingsForThisCourt) {
             try {
-              console.log(`=== DEBUG: Kiểm tra quyền đánh giá cho booking ${booking.id} ===`);
               const canReviewResponse = await ReviewServiceWrapper.canUserReviewBooking(booking.id);
-              console.log('Can review response:', canReviewResponse);
               
               if (canReviewResponse && canReviewResponse.canReview) {
                 bookingsToReview.push(booking);
-                console.log(`Booking ${booking.id} có thể đánh giá`);
-              } else {
-                console.log(`Booking ${booking.id} không thể đánh giá:`, canReviewResponse?.reason);
               }
             } catch (error) {
               console.error(`Lỗi kiểm tra quyền đánh giá booking ${booking.id}:`, error);
             }
           }
           
-          console.log('=== DEBUG: Final bookings có thể đánh giá ===', bookingsToReview);
           setAvailableBookingsToReview(bookingsToReview);
-        } else {
-          console.log('=== DEBUG: Không có bookings nào ===');
         }
       } catch (error) {
         console.error('Lỗi khi lấy booking history:', error);
@@ -676,7 +630,7 @@ const CourtDetail = () => {
         updatedAt: new Date().toISOString()  // Convert to string
       };
 
-      console.log('Chuẩn bị dữ liệu đặt sân:', bookingData);
+
 
       // Lưu dữ liệu booking để sử dụng sau khi thanh toán thành công
       setCreatedBooking(bookingData);
