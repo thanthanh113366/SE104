@@ -14,12 +14,22 @@ const PaymentReturn = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
+    // Prevent multiple executions
+    const hasProcessed = sessionStorage.getItem('paymentProcessed');
+    if (hasProcessed) {
+      console.log('Payment already processed, skipping...');
+      return;
+    }
+
     const handlePaymentReturn = async () => {
       const resultCode = searchParams.get('resultCode');
       const orderId = searchParams.get('orderId');
       const message = searchParams.get('message');
 
       console.log('MoMo Payment Return:', { resultCode, orderId, message });
+      
+      // Mark as processed immediately
+      sessionStorage.setItem('paymentProcessed', 'true');
 
       if (resultCode === '0') {
         // Thanh toán thành công
@@ -56,6 +66,8 @@ const PaymentReturn = () => {
         // Auto close tab sau khi thông báo thành công
         setTimeout(() => {
           console.log('Auto closing payment tab...');
+          // Clear processed flag before closing
+          sessionStorage.removeItem('paymentProcessed');
           window.close();
           
           // Fallback: nếu không đóng được tab, redirect về trang chính
@@ -92,6 +104,8 @@ const PaymentReturn = () => {
 
         setTimeout(() => {
           console.log('Auto closing payment tab...');
+          // Clear processed flag before closing
+          sessionStorage.removeItem('paymentProcessed');
           window.close();
           setTimeout(() => {
             navigate('/renter');

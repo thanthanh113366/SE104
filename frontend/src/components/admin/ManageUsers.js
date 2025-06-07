@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Box, 
   Typography, 
@@ -29,8 +29,12 @@ import {
   Stack,
   Divider,
   Tabs,
-  Tab
+  Tab,
+  CircularProgress,
+  Snackbar,
+  Alert
 } from '@mui/material';
+import { useAuth } from '../../contexts/AuthContext';
 
 // Icons
 import SearchIcon from '@mui/icons-material/Search';
@@ -47,88 +51,10 @@ import EventIcon from '@mui/icons-material/Event';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 
-// Dữ liệu mẫu
-const SAMPLE_USERS = [
-  { 
-    id: 'user1', 
-    name: 'Nguyễn Văn A', 
-    email: 'nguyenvana@example.com', 
-    phone: '0901234567',
-    role: 'renter', 
-    status: 'active',
-    registeredDate: '15/03/2023',
-    lastLogin: '22/05/2023 15:45',
-    totalBookings: 12
-  },
-  { 
-    id: 'user2', 
-    name: 'Trần Thị B', 
-    email: 'tranthib@example.com', 
-    phone: '0912345678',
-    role: 'owner', 
-    status: 'active',
-    registeredDate: '10/02/2023',
-    lastLogin: '21/05/2023 08:30',
-    totalCourts: 2
-  },
-  { 
-    id: 'user3', 
-    name: 'Lê Văn C', 
-    email: 'levanc@example.com', 
-    phone: '0923456789',
-    role: 'renter', 
-    status: 'inactive',
-    registeredDate: '20/04/2023',
-    lastLogin: '15/05/2023 14:20',
-    totalBookings: 3
-  },
-  { 
-    id: 'user4', 
-    name: 'Phạm Văn D', 
-    email: 'phamvand@example.com', 
-    phone: '0934567890',
-    role: 'admin', 
-    status: 'active',
-    registeredDate: '05/01/2023',
-    lastLogin: '22/05/2023 10:15'
-  },
-  { 
-    id: 'user5', 
-    name: 'Hoàng Thị E', 
-    email: 'hoangthie@example.com', 
-    phone: '0945678901',
-    role: 'renter', 
-    status: 'active',
-    registeredDate: '12/03/2023',
-    lastLogin: '20/05/2023 18:30',
-    totalBookings: 8
-  },
-  { 
-    id: 'user6', 
-    name: 'Vũ Văn F', 
-    email: 'vuvanf@example.com', 
-    phone: '0956789012',
-    role: 'owner', 
-    status: 'active',
-    registeredDate: '18/02/2023',
-    lastLogin: '21/05/2023 09:45',
-    totalCourts: 1
-  },
-  { 
-    id: 'user7', 
-    name: 'Đặng Thị G', 
-    email: 'dangthig@example.com', 
-    phone: '0967890123',
-    role: 'renter', 
-    status: 'pending',
-    registeredDate: '22/05/2023',
-    lastLogin: '22/05/2023 11:20',
-    totalBookings: 0
-  }
-];
-
 const ManageUsers = () => {
-  const [users, setUsers] = useState(SAMPLE_USERS);
+  const { currentUser } = useAuth();
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(5);
   const [searchTerm, setSearchTerm] = useState('');
@@ -141,6 +67,56 @@ const ManageUsers = () => {
   const [selectedUser, setSelectedUser] = useState(null);
   const [anchorEl, setAnchorEl] = useState(null);
   const [tabValue, setTabValue] = useState(0);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
+
+  useEffect(() => {
+    if (currentUser) {
+      fetchUsers();
+    }
+  }, [currentUser]);
+
+  const fetchUsers = async () => {
+    try {
+      setLoading(true);
+      const { db } = await import('../../firebase');
+      const { collection, getDocs, query, orderBy } = await import('firebase/firestore');
+      
+      const usersQuery = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
+      const usersSnapshot = await getDocs(usersQuery);
+      
+      const usersData = usersSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          name: data.displayName || data.email?.split('@')[0] || 'Người dùng',
+          email: data.email || 'N/A',
+          phone: data.phone || 'N/A',
+          role: data.role || 'renter',
+          status: data.status || 'active',
+          registeredDate: data.createdAt ? new Date(data.createdAt).toLocaleDateString('vi-VN') : 'N/A',
+          lastLogin: data.lastLogin ? new Date(data.lastLogin).toLocaleString('vi-VN') : 'N/A',
+          totalBookings: data.totalBookings || 0,
+          totalCourts: data.totalCourts || 0
+        };
+      });
+      
+      setUsers(usersData);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      setSnackbar({ 
+        open: true, 
+        message: 'Lỗi khi tải danh sách người dùng', 
+        severity: 'error' 
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatDate = (date) => {
+    if (!date) return 'N/A';
+    return new Date(date).toLocaleDateString('vi-VN');
+  };
   
   // Xử lý thay đổi tab
   const handleTabChange = (event, newValue) => {
@@ -203,25 +179,69 @@ const ManageUsers = () => {
   };
   
   // Xử lý khóa/mở khóa tài khoản
-  const handleToggleUserStatus = () => {
+  const handleToggleUserStatus = async () => {
     if (!selectedUser) return;
     
-    setUsers(users.map(user => {
-      if (user.id === selectedUser.id) {
-        const newStatus = user.status === 'active' ? 'inactive' : 'active';
-        return { ...user, status: newStatus };
-      }
-      return user;
-    }));
+    try {
+      const { db } = await import('../../firebase');
+      const { doc, updateDoc } = await import('firebase/firestore');
+      
+      const newStatus = selectedUser.status === 'active' ? 'inactive' : 'active';
+      
+      await updateDoc(doc(db, 'users', selectedUser.id), {
+        status: newStatus
+      });
+      
+      setUsers(users.map(user => {
+        if (user.id === selectedUser.id) {
+          return { ...user, status: newStatus };
+        }
+        return user;
+      }));
+      
+      setSnackbar({ 
+        open: true, 
+        message: `Đã ${newStatus === 'active' ? 'kích hoạt' : 'khóa'} tài khoản thành công`, 
+        severity: 'success' 
+      });
+    } catch (error) {
+      console.error('Error updating user status:', error);
+      setSnackbar({ 
+        open: true, 
+        message: 'Lỗi khi cập nhật trạng thái người dùng', 
+        severity: 'error' 
+      });
+    }
     
     setBlockDialogOpen(false);
   };
   
   // Xử lý xóa người dùng
-  const handleDeleteUser = () => {
+  const handleDeleteUser = async () => {
     if (!selectedUser) return;
     
-    setUsers(users.filter(user => user.id !== selectedUser.id));
+    try {
+      const { db } = await import('../../firebase');
+      const { doc, deleteDoc } = await import('firebase/firestore');
+      
+      await deleteDoc(doc(db, 'users', selectedUser.id));
+      
+      setUsers(users.filter(user => user.id !== selectedUser.id));
+      
+      setSnackbar({ 
+        open: true, 
+        message: 'Đã xóa người dùng thành công', 
+        severity: 'success' 
+      });
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      setSnackbar({ 
+        open: true, 
+        message: 'Lỗi khi xóa người dùng', 
+        severity: 'error' 
+      });
+    }
+    
     setDeleteDialogOpen(false);
   };
   
@@ -284,6 +304,14 @@ const ManageUsers = () => {
     }
   };
   
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
       <Typography variant="h4" sx={{ mb: 3, fontWeight: 'bold' }}>
@@ -674,6 +702,17 @@ const ManageUsers = () => {
           </Button>
         </DialogActions>
       </Dialog>
+      
+      {/* Snackbar thông báo */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+      >
+        <Alert onClose={() => setSnackbar({ ...snackbar, open: false })} severity={snackbar.severity}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

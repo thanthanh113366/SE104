@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Box, 
   Typography, 
@@ -19,6 +19,7 @@ import {
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import BookingServiceWrapper from '../../services/bookingServiceWrapper';
 
 // Charts
 import { PieChart } from '@mui/x-charts/PieChart';
@@ -35,64 +36,147 @@ import ErrorIcon from '@mui/icons-material/Error';
 import PersonIcon from '@mui/icons-material/Person';
 
 const OwnerHome = () => {
-  const { userDetails } = useAuth();
+  const { userDetails, currentUser } = useAuth();
   const navigate = useNavigate();
   
-  // Dữ liệu mẫu
-  const stats = {
-    totalCourts: 5,
-    activeCourts: 4,
-    totalBookings: 28,
-    pendingBookings: 3,
-    confirmedBookings: 22,
-    cancelledBookings: 3,
-    totalRevenue: 12500000,
-    lastWeekRevenue: 2800000,
-    thisWeekRevenue: 3200000,
-    revenueChange: 14.3, // phần trăm thay đổi
+  // State for real data
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({
+    totalCourts: 0,
+    activeCourts: 0,
+    totalBookings: 0,
+    pendingBookings: 0,
+    confirmedBookings: 0,
+    cancelledBookings: 0,
+    totalRevenue: 0,
+    recentBookings: []
+  });
+
+  useEffect(() => {
+    if (currentUser) {
+      fetchOwnerData();
+    }
+  }, [currentUser]);
+
+  const fetchOwnerData = async () => {
+    try {
+      setLoading(true);
+      
+      // Lấy courts của owner từ Firebase
+      let ownerCourts = [];
+      try {
+        const { db } = await import('../../firebase');
+        const { collection, query, where, getDocs } = await import('firebase/firestore');
+        
+        const courtsQuery = query(
+          collection(db, 'courts'),
+          where('ownerId', '==', currentUser.uid)
+        );
+        
+        const courtsSnapshot = await getDocs(courtsQuery);
+        ownerCourts = courtsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      } catch (courtsError) {
+        console.error('Error fetching courts:', courtsError);
+      }
+
+      // Lấy bookings của các sân của owner
+      let ownerBookings = [];
+      try {
+        const { db } = await import('../../firebase');
+        const { collection, query, where, getDocs, orderBy, limit } = await import('firebase/firestore');
+        
+        if (ownerCourts.length > 0) {
+          const courtIds = ownerCourts.map(court => court.id);
+          
+          // Firebase không support array trong where nên phải query từng court
+          for (const courtId of courtIds) {
+            const bookingsQuery = query(
+              collection(db, 'bookings'),
+              where('courtId', '==', courtId),
+              orderBy('createdAt', 'desc'),
+              limit(20)
+            );
+            
+            const bookingsSnapshot = await getDocs(bookingsQuery);
+            const courtBookings = bookingsSnapshot.docs.map(doc => ({
+              id: doc.id,
+              ...doc.data(),
+              courtName: ownerCourts.find(c => c.id === courtId)?.name || 'N/A'
+            }));
+            
+            ownerBookings = [...ownerBookings, ...courtBookings];
+          }
+          
+          // Sort lại theo createdAt
+          ownerBookings.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        }
+      } catch (bookingsError) {
+        console.error('Error fetching bookings:', bookingsError);
+      }
+
+      // Tính toán stats
+      const pendingBookings = ownerBookings.filter(b => b.status === 'pending' || b.status === 'Chờ xác nhận').length;
+      const confirmedBookings = ownerBookings.filter(b => b.status === 'confirmed' || b.status === 'Đã xác nhận').length;
+      const cancelledBookings = ownerBookings.filter(b => b.status === 'cancelled' || b.status === 'Đã hủy').length;
+      
+      // Tính tổng doanh thu từ các booking đã xác nhận
+      const totalRevenue = ownerBookings
+        .filter(b => b.status === 'confirmed' || b.status === 'Đã xác nhận')
+        .reduce((sum, booking) => sum + (booking.totalPrice || booking.price || 0), 0);
+
+      setStats({
+        totalCourts: ownerCourts.length,
+        activeCourts: ownerCourts.filter(c => c.status === 'active').length || ownerCourts.length,
+        totalBookings: ownerBookings.length,
+        pendingBookings,
+        confirmedBookings,
+        cancelledBookings,
+        totalRevenue,
+        recentBookings: ownerBookings.slice(0, 5) // 5 booking gần nhất
+      });
+
+    } catch (error) {
+      console.error('Error fetching owner data:', error);
+    } finally {
+      setLoading(false);
+    }
   };
-  
-  // Dữ liệu biểu đồ
+
+  // Dữ liệu biểu đồ trạng thái booking
   const bookingStatusData = [
     { id: 0, value: stats.pendingBookings, label: 'Chờ xác nhận', color: '#ff9800' },
     { id: 1, value: stats.confirmedBookings, label: 'Đã xác nhận', color: '#4caf50' },
     { id: 2, value: stats.cancelledBookings, label: 'Đã hủy', color: '#f44336' },
   ];
-  
-  // Dữ liệu biểu đồ doanh thu theo ngày trong tuần
-  const revenueData = [
-    { day: 'T2', revenue: 450000 },
-    { day: 'T3', revenue: 380000 },
-    { day: 'T4', revenue: 520000 },
-    { day: 'T5', revenue: 420000 },
-    { day: 'T6', revenue: 580000 },
-    { day: 'T7', revenue: 650000 },
-    { day: 'CN', revenue: 500000 },
-  ];
-  
-  // Dữ liệu đặt sân gần đây
-  const recentBookings = [
-    { id: 'b1', courtName: 'Sân bóng đá Mini A', customerName: 'Nguyễn Văn A', time: '18:00 - 20:00', date: '15/05/2023', status: 'confirmed', amount: 600000 },
-    { id: 'b2', courtName: 'Sân cầu lông số 2', customerName: 'Trần Thị B', time: '07:00 - 09:00', date: '16/05/2023', status: 'pending', amount: 240000 },
-    { id: 'b3', courtName: 'Sân bóng rổ', customerName: 'Lê Văn C', time: '15:30 - 17:00', date: '16/05/2023', status: 'confirmed', amount: 350000 },
-    { id: 'b4', courtName: 'Sân bóng đá Mini B', customerName: 'Phạm Văn D', time: '19:00 - 21:00', date: '17/05/2023', status: 'cancelled', amount: 600000 },
-  ];
-  
+
   // Format tiền VND
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' })
       .format(amount)
       .replace('₫', 'VNĐ');
   };
+
+  const formatDate = (date) => {
+    if (!date) return 'N/A';
+    return new Date(date).toLocaleDateString('vi-VN');
+  };
+
+  const formatTime = (time) => {
+    if (!time) return 'N/A';
+    return time;
+  };
   
   // Icon trạng thái
   const getStatusIcon = (status) => {
     switch (status) {
       case 'confirmed':
+      case 'Đã xác nhận':
         return <CheckCircleIcon color="success" />;
       case 'pending':
+      case 'Chờ xác nhận':
         return <PendingIcon color="warning" />;
       case 'cancelled':
+      case 'Đã hủy':
         return <ErrorIcon color="error" />;
       default:
         return <PendingIcon color="info" />;
@@ -103,15 +187,26 @@ const OwnerHome = () => {
   const getStatusText = (status) => {
     switch (status) {
       case 'confirmed':
+      case 'Đã xác nhận':
         return 'Đã xác nhận';
       case 'pending':
+      case 'Chờ xác nhận':
         return 'Chờ xác nhận';
       case 'cancelled':
+      case 'Đã hủy':
         return 'Đã hủy';
       default:
         return 'Không xác định';
     }
   };
+
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
   
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
@@ -191,15 +286,15 @@ const OwnerHome = () => {
                 <Typography variant="h6">Doanh thu</Typography>
               </Box>
               <Typography variant="h3" sx={{ fontWeight: 'bold', mb: 0.5 }}>
-                {formatCurrency(stats.thisWeekRevenue).replace('VNĐ', '')}
+                {formatCurrency(stats.totalRevenue).replace('VNĐ', '')}
               </Typography>
-              <Typography variant="body2" color={stats.revenueChange >= 0 ? 'success.main' : 'error.main'}>
-                {stats.revenueChange >= 0 ? '+' : ''}{stats.revenueChange}% so với tuần trước
+              <Typography variant="body2" color="text.secondary">
+                Tổng doanh thu đã xác nhận
               </Typography>
               <Button 
                 variant="text" 
                 endIcon={<ArrowForwardIcon />}
-                onClick={() => navigate('/owner/revenue')}
+                onClick={() => navigate('/owner/bookings')}
                 sx={{ mt: 2 }}
               >
                 Xem báo cáo
@@ -218,10 +313,10 @@ const OwnerHome = () => {
                 <Typography variant="h6">Khách hàng</Typography>
               </Box>
               <Typography variant="h3" sx={{ fontWeight: 'bold', mb: 0.5 }}>
-                {recentBookings.length}
+                {stats.confirmedBookings}
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Khách hàng mới trong tuần
+                Lượt đặt sân thành công
               </Typography>
               <Button 
                 variant="text" 
@@ -236,41 +331,35 @@ const OwnerHome = () => {
         </Grid>
       </Grid>
       
-      {/* Biểu đồ */}
+      {/* Biểu đồ trạng thái đặt sân */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} md={8}>
+        <Grid item xs={12}>
           <Paper sx={{ p: 3, borderRadius: 2 }}>
-            <Typography variant="h6" gutterBottom>
-              Doanh thu theo ngày trong tuần
-            </Typography>
-            <BarChart
-              xAxis={[{ scaleType: 'band', data: revenueData.map(item => item.day) }]}
-              series={[{ data: revenueData.map(item => item.revenue), color: '#2e7d32' }]}
-              height={300}
-              margin={{ top: 10, bottom: 30, left: 40, right: 10 }}
-            />
-          </Paper>
-        </Grid>
-        
-        <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 3, borderRadius: 2, height: '100%' }}>
             <Typography variant="h6" gutterBottom>
               Trạng thái đặt sân
             </Typography>
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80%' }}>
-              <PieChart
-                series={[
-                  {
-                    data: bookingStatusData,
-                    innerRadius: 30,
-                    paddingAngle: 2,
-                    cornerRadius: 4,
-                  },
-                ]}
-                width={300}
-                height={200}
-              />
-            </Box>
+            {stats.totalBookings > 0 ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
+                <PieChart
+                  series={[
+                    {
+                      data: bookingStatusData,
+                      innerRadius: 60,
+                      paddingAngle: 2,
+                      cornerRadius: 4,
+                    },
+                  ]}
+                  width={500}
+                  height={300}
+                />
+              </Box>
+            ) : (
+              <Box sx={{ textAlign: 'center', py: 4 }}>
+                <Typography color="text.secondary">
+                  Chưa có đơn đặt sân nào
+                </Typography>
+              </Box>
+            )}
           </Paper>
         </Grid>
       </Grid>
@@ -293,46 +382,54 @@ const OwnerHome = () => {
         
         <Divider sx={{ mb: 2 }} />
         
-        <List>
-          {recentBookings.map((booking) => (
-            <React.Fragment key={booking.id}>
-              <ListItem
-                alignItems="flex-start"
-                secondaryAction={
-                  <Box sx={{ textAlign: 'right' }}>
-                    <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
-                      {formatCurrency(booking.amount)}
-                    </Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
-                      {getStatusIcon(booking.status)}
-                      <Typography variant="body2" sx={{ ml: 1 }}>
-                        {getStatusText(booking.status)}
+        {stats.recentBookings.length > 0 ? (
+          <List>
+            {stats.recentBookings.map((booking) => (
+              <React.Fragment key={booking.id}>
+                <ListItem
+                  alignItems="flex-start"
+                  secondaryAction={
+                    <Box sx={{ textAlign: 'right' }}>
+                      <Typography variant="body1" sx={{ fontWeight: 'bold' }}>
+                        {formatCurrency(booking.totalPrice || booking.price || 0)}
                       </Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
+                        {getStatusIcon(booking.status)}
+                        <Typography variant="body2" sx={{ ml: 1 }}>
+                          {getStatusText(booking.status)}
+                        </Typography>
+                      </Box>
                     </Box>
-                  </Box>
-                }
-              >
-                <ListItemAvatar>
-                  <Avatar>
-                    <PersonIcon />
-                  </Avatar>
-                </ListItemAvatar>
-                <ListItemText
-                  primary={booking.customerName}
-                  secondary={
-                    <React.Fragment>
-                      <Typography component="span" variant="body2" color="text.primary">
-                        {booking.courtName}
-                      </Typography>
-                      {` — ${booking.date}, ${booking.time}`}
-                    </React.Fragment>
                   }
-                />
-              </ListItem>
-              <Divider variant="inset" component="li" />
-            </React.Fragment>
-          ))}
-        </List>
+                >
+                  <ListItemAvatar>
+                    <Avatar>
+                      <PersonIcon />
+                    </Avatar>
+                  </ListItemAvatar>
+                  <ListItemText
+                    primary={booking.renterName || booking.userName || 'Khách hàng'}
+                    secondary={
+                      <React.Fragment>
+                        <Typography component="span" variant="body2" color="text.primary">
+                          {booking.courtName}
+                        </Typography>
+                        {` — ${formatDate(booking.date)}, ${formatTime(booking.startTime)}-${formatTime(booking.endTime)}`}
+                      </React.Fragment>
+                    }
+                  />
+                </ListItem>
+                <Divider variant="inset" component="li" />
+              </React.Fragment>
+            ))}
+          </List>
+        ) : (
+          <Box sx={{ textAlign: 'center', py: 4 }}>
+            <Typography color="text.secondary">
+              Chưa có đơn đặt sân nào. Hãy thêm sân để bắt đầu nhận booking!
+            </Typography>
+          </Box>
+        )}
       </Paper>
     </Box>
   );

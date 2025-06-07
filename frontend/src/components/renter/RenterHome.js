@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Box, 
   Typography, 
@@ -12,10 +12,12 @@ import {
   ListItem,
   ListItemIcon,
   ListItemText,
-  Stack
+  Stack,
+  CircularProgress
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import BookingServiceWrapper from '../../services/bookingServiceWrapper';
 
 // Icons
 import SearchIcon from '@mui/icons-material/Search';
@@ -27,8 +29,13 @@ import SportsBasketballIcon from '@mui/icons-material/SportsBasketball';
 import SportsTennisIcon from '@mui/icons-material/SportsTennis';
 
 const RenterHome = () => {
-  const { userDetails } = useAuth();
+  const { userDetails, currentUser } = useAuth();
   const navigate = useNavigate();
+  
+  // State for real data
+  const [loading, setLoading] = useState(true);
+  const [recentBookings, setRecentBookings] = useState([]);
+  const [recentReviews, setRecentReviews] = useState([]);
   
   // Các hình ảnh mẫu cho banner
   const bannerImages = [
@@ -36,13 +43,71 @@ const RenterHome = () => {
     'https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?q=80&w=1000&auto=format&fit=crop',
     'https://images.unsplash.com/photo-1574629810360-7efbbe195018?q=80&w=1000&auto=format&fit=crop'
   ];
-  
-  // Thông tin thể thao phổ biến
-  const popularSports = [
-    { name: 'Bóng đá', icon: <SportsSoccerIcon color="primary" />, count: 15 },
-    { name: 'Bóng rổ', icon: <SportsBasketballIcon color="warning" />, count: 8 },
-    { name: 'Tennis', icon: <SportsTennisIcon color="success" />, count: 12 }
-  ];
+
+  useEffect(() => {
+    if (currentUser) {
+      fetchDashboardData();
+    }
+  }, [currentUser]);
+
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
+      
+      // Lấy recent bookings từ API
+      try {
+        const bookingsResponse = await BookingServiceWrapper.getUserBookings(currentUser.uid);
+        if (bookingsResponse && bookingsResponse.bookings) {
+          // Lấy 3 booking gần nhất
+          const sortedBookings = bookingsResponse.bookings
+            .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+            .slice(0, 3);
+          setRecentBookings(sortedBookings);
+        }
+      } catch (bookingError) {
+        console.error('Error fetching recent bookings:', bookingError);
+      }
+
+      // Lấy recent reviews từ Firebase
+      try {
+        const { db } = await import('../../firebase');
+        const { collection, query, where, orderBy, limit, getDocs } = await import('firebase/firestore');
+        
+        const reviewsQuery = query(
+          collection(db, 'reviews'),
+          where('userId', '==', currentUser.uid),
+          orderBy('createdAt', 'desc'),
+          limit(2)
+        );
+        
+        const reviewsSnapshot = await getDocs(reviewsQuery);
+        const reviews = reviewsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        
+        setRecentReviews(reviews);
+      } catch (reviewError) {
+        console.error('Error fetching recent reviews:', reviewError);
+      }
+
+             
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatDate = (date) => {
+    if (!date) return 'N/A';
+    return new Date(date).toLocaleDateString('vi-VN');
+  };
+
+  const formatTime = (time) => {
+    if (!time) return 'N/A';
+    return time;
+  };
   
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
@@ -197,63 +262,59 @@ const RenterHome = () => {
         </Grid>
       </Grid>
       
-      {/* Popular sports */}
+      {/* Recent Activities */}
       <Grid container spacing={3}>
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 3, borderRadius: 2 }}>
-            <Typography variant="h6" gutterBottom>Môn thể thao phổ biến</Typography>
-            <Divider sx={{ mb: 2 }} />
-            <List>
-              {popularSports.map((sport, index) => (
-                <ListItem 
-                  key={index}
-                  component="div"
-                  onClick={() => navigate('/renter/find-courts')}
-                  sx={{ borderRadius: 1, cursor: 'pointer' }}
-                >
-                  <ListItemIcon>
-                    {sport.icon}
-                  </ListItemIcon>
-                  <ListItemText 
-                    primary={sport.name} 
-                    secondary={`${sport.count} sân có sẵn`} 
-                  />
-                </ListItem>
-              ))}
-            </List>
-          </Paper>
-        </Grid>
-        
-        <Grid item xs={12} md={6}>
+        <Grid item xs={12}>
           <Paper sx={{ p: 3, borderRadius: 2 }}>
             <Typography variant="h6" gutterBottom>Hoạt động gần đây</Typography>
             <Divider sx={{ mb: 2 }} />
-            <Stack spacing={2}>
-              <Box>
-                <Typography variant="subtitle2">
-                  Bạn đã đặt sân bóng đá Mini Thủ Đức
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Ngày 25/11/2023, 18:00-19:30
-                </Typography>
+            {loading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
+                <CircularProgress size={24} />
               </Box>
-              <Box>
-                <Typography variant="subtitle2">
-                  Bạn đã đánh giá sân cầu lông Tân Bình
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Đánh giá: 4.5/5 sao
-                </Typography>
-              </Box>
-              <Button 
-                variant="outlined" 
-                size="small"
-                onClick={() => navigate('/renter/bookings')}
-                sx={{ alignSelf: 'flex-start', mt: 1 }}
-              >
-                Xem tất cả hoạt động
-              </Button>
-            </Stack>
+            ) : (
+              <Stack spacing={2}>
+                {/* Recent bookings */}
+                {recentBookings.slice(0, 1).map((booking) => (
+                  <Box key={booking.id}>
+                    <Typography variant="subtitle2">
+                      Bạn đã đặt sân {booking.courtName || 'N/A'}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Ngày {formatDate(booking.date)}, {formatTime(booking.startTime)}-{formatTime(booking.endTime)}
+                    </Typography>
+                  </Box>
+                ))}
+                
+                {/* Recent reviews */}
+                {recentReviews.slice(0, 1).map((review) => (
+                  <Box key={review.id}>
+                    <Typography variant="subtitle2">
+                      Bạn đã đánh giá một sân
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Đánh giá: {review.rating}/5 sao - "{review.comment?.substring(0, 50)}..."
+                    </Typography>
+                  </Box>
+                ))}
+                
+                {/* No activities message */}
+                {recentBookings.length === 0 && recentReviews.length === 0 && (
+                  <Typography color="text.secondary">
+                    Chưa có hoạt động nào. Hãy bắt đầu đặt sân!
+                  </Typography>
+                )}
+                
+                <Button 
+                  variant="outlined" 
+                  size="small"
+                  onClick={() => navigate('/renter/bookings')}
+                  sx={{ alignSelf: 'flex-start', mt: 1 }}
+                >
+                  Xem tất cả hoạt động
+                </Button>
+              </Stack>
+            )}
           </Paper>
         </Grid>
       </Grid>

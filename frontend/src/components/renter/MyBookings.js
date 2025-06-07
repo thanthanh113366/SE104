@@ -160,13 +160,34 @@ const MyBookings = () => {
           data.sport = 'Không xác định';
         }
         
+        // Xác định payment method từ booking data
+        let paymentMethod = 'cash'; // default
+        
+        // Check các nguồn dữ liệu khác nhau cho payment method
+        if (data.paymentMethod) {
+          paymentMethod = data.paymentMethod;
+        } else if (data.payment?.method) {
+          paymentMethod = data.payment.method;
+        } else {
+          // Nếu có payment record với provider = momo -> payment method = momo
+          if (data.payment?.provider === 'momo' || 
+              data.paymentProvider === 'momo' ||
+              data.provider === 'momo') {
+            paymentMethod = 'momo';
+          }
+          // Nếu có thông tin về e_wallet -> payment method = momo
+          else if (data.payment?.type === 'e_wallet' || data.paymentType === 'e_wallet') {
+            paymentMethod = 'momo';
+          }
+        }
+
         return { 
           id: bookingDoc.id,
           ...data,
           courtName: data.courtName || 'Không có tên',
           address: data.address || 'Không có địa chỉ',
           sport: data.sport || 'Không xác định',
-          paymentMethod: data.paymentMethod || data.payment?.method || 'cash',
+          paymentMethod: paymentMethod,
           createdAt: data.createdAt || new Date()
         };
       });
@@ -174,11 +195,11 @@ const MyBookings = () => {
       // Đợi tất cả promises hoàn thành
       const resolvedBookings = await Promise.all(bookingsPromises);
       
-      // Sắp xếp theo ngày trên client side
+      // Sắp xếp theo thời gian đặt (createdAt) trên client side - mới nhất trước
       bookingsData.push(...resolvedBookings.sort((a, b) => {
-        const dateA = a.date instanceof Date ? a.date : new Date(a.date);
-        const dateB = b.date instanceof Date ? b.date : new Date(b.date);
-        return dateB - dateA;
+        const createdA = a.createdAt instanceof Date ? a.createdAt : new Date(a.createdAt);
+        const createdB = b.createdAt instanceof Date ? b.createdAt : new Date(b.createdAt);
+        return createdB - createdA; // Booking mới nhất trước
       }));
       
       // Nếu không có dữ liệu từ Firestore, sử dụng dữ liệu demo

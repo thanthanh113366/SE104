@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Box, 
   Typography, 
@@ -13,9 +13,11 @@ import {
   ListItemText,
   ListItemAvatar,
   Avatar,
-  Chip
+  Chip,
+  CircularProgress
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
 
 // Charts
 import { BarChart } from '@mui/x-charts/BarChart';
@@ -33,59 +35,133 @@ import PendingIcon from '@mui/icons-material/Pending';
 
 const AdminHome = () => {
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
   
-  // Dữ liệu mẫu
-  const stats = {
-    totalUsers: 145,
-    ownerUsers: 22,
-    renterUsers: 120,
-    adminUsers: 3,
-    totalCourts: 38,
-    activeCourts: 35,
-    inactiveCourts: 3,
-    totalBookings: 256,
-    pendingBookings: 12,
-    completedBookings: 220,
-    cancelledBookings: 24
+  // State for real data
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({
+    totalUsers: 0,
+    ownerUsers: 0,
+    renterUsers: 0,
+    adminUsers: 0,
+    totalCourts: 0,
+    activeCourts: 0,
+    inactiveCourts: 0,
+    totalBookings: 0,
+    pendingBookings: 0,
+    completedBookings: 0,
+    cancelledBookings: 0,
+    newUsers: []
+  });
+
+  useEffect(() => {
+    if (currentUser) {
+      fetchAdminData();
+    }
+  }, [currentUser]);
+
+  const fetchAdminData = async () => {
+    try {
+      setLoading(true);
+      
+      // Lấy tất cả users từ Firebase
+      let allUsers = [];
+      try {
+        const { db } = await import('../../firebase');
+        const { collection, getDocs, orderBy, query, limit } = await import('firebase/firestore');
+        
+        const usersSnapshot = await getDocs(collection(db, 'users'));
+        allUsers = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+        // Lấy 5 user mới nhất
+        const recentUsersQuery = query(
+          collection(db, 'users'),
+          orderBy('createdAt', 'desc'),
+          limit(5)
+        );
+        const recentUsersSnapshot = await getDocs(recentUsersQuery);
+        const newUsers = recentUsersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        
+        setStats(prev => ({ ...prev, newUsers }));
+      } catch (usersError) {
+        console.error('Error fetching users:', usersError);
+      }
+
+      // Lấy tất cả courts từ Firebase
+      let allCourts = [];
+      try {
+        const { db } = await import('../../firebase');
+        const { collection, getDocs } = await import('firebase/firestore');
+        
+        const courtsSnapshot = await getDocs(collection(db, 'courts'));
+        allCourts = courtsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      } catch (courtsError) {
+        console.error('Error fetching courts:', courtsError);
+      }
+
+      // Lấy tất cả bookings từ Firebase
+      let allBookings = [];
+      try {
+        const { db } = await import('../../firebase');
+        const { collection, getDocs } = await import('firebase/firestore');
+        
+        const bookingsSnapshot = await getDocs(collection(db, 'bookings'));
+        allBookings = bookingsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      } catch (bookingsError) {
+        console.error('Error fetching bookings:', bookingsError);
+      }
+
+      // Tính toán stats
+      const ownerUsers = allUsers.filter(u => u.role === 'owner').length;
+      const renterUsers = allUsers.filter(u => u.role === 'renter').length;
+      const adminUsers = allUsers.filter(u => u.role === 'admin').length;
+      
+      const activeCourts = allCourts.filter(c => c.status === 'active' || !c.status).length;
+      const inactiveCourts = allCourts.filter(c => c.status === 'inactive').length;
+      
+      const pendingBookings = allBookings.filter(b => 
+        b.status === 'pending' || b.status === 'Chờ xác nhận'
+      ).length;
+      const completedBookings = allBookings.filter(b => 
+        b.status === 'completed' || b.status === 'confirmed' || b.status === 'Đã xác nhận'
+      ).length;
+      const cancelledBookings = allBookings.filter(b => 
+        b.status === 'cancelled' || b.status === 'Đã hủy'
+      ).length;
+
+      setStats({
+        totalUsers: allUsers.length,
+        ownerUsers,
+        renterUsers,
+        adminUsers,
+        totalCourts: allCourts.length,
+        activeCourts,
+        inactiveCourts,
+        totalBookings: allBookings.length,
+        pendingBookings,
+        completedBookings,
+        cancelledBookings,
+        newUsers: stats.newUsers
+      });
+
+    } catch (error) {
+      console.error('Error fetching admin data:', error);
+    } finally {
+      setLoading(false);
+    }
   };
-  
+
   // Dữ liệu biểu đồ người dùng theo vai trò
   const userRoleData = [
     { id: 0, value: stats.renterUsers, label: 'Người thuê sân', color: '#2196f3' },
     { id: 1, value: stats.ownerUsers, label: 'Chủ sân', color: '#4caf50' },
     { id: 2, value: stats.adminUsers, label: 'Quản trị viên', color: '#f44336' },
   ];
-  
-  // Dữ liệu biểu đồ đặt sân theo trạng thái
-  const bookingStatusData = [
-    { id: 0, value: stats.pendingBookings, label: 'Chờ xác nhận', color: '#ff9800' },
-    { id: 1, value: stats.completedBookings, label: 'Hoàn thành', color: '#4caf50' },
-    { id: 2, value: stats.cancelledBookings, label: 'Đã hủy', color: '#f44336' },
-  ];
-  
-  // Dữ liệu biểu đồ đăng ký theo thời gian
-  const registrationData = [
-    { month: 'T1', users: 8 },
-    { month: 'T2', users: 12 },
-    { month: 'T3', users: 18 },
-    { month: 'T4', users: 15 },
-    { month: 'T5', users: 25 },
-    { month: 'T6', users: 30 },
-    { month: 'T7', users: 22 },
-    { month: 'T8', users: 28 },
-    { month: 'T9', users: 32 },
-    { month: 'T10', users: 20 },
-    { month: 'T11', users: 15 },
-    { month: 'T12', users: 10 },
-  ];
-  
-  // Dữ liệu người dùng mới đăng ký
-  const newUsers = [
-    { id: 'user1', name: 'Nguyễn Văn A', email: 'nguyenvana@example.com', role: 'renter', registeredDate: '22/05/2023', status: 'active' },
-    { id: 'user2', name: 'Trần Thị B', email: 'tranthib@example.com', role: 'owner', registeredDate: '21/05/2023', status: 'active' },
-    { id: 'user3', name: 'Lê Văn C', email: 'levanc@example.com', role: 'renter', registeredDate: '20/05/2023', status: 'inactive' },
-    { id: 'user4', name: 'Phạm Văn D', email: 'phamvand@example.com', role: 'renter', registeredDate: '19/05/2023', status: 'active' },
-  ];
+
+  const formatDate = (date) => {
+    if (!date) return 'N/A';
+    return new Date(date).toLocaleDateString('vi-VN');
+  };
   
   // Hiển thị chip vai trò người dùng
   const getUserRoleChip = (role) => {
@@ -111,9 +187,17 @@ const AdminHome = () => {
       case 'pending':
         return <Chip size="small" color="warning" icon={<PendingIcon />} label="Chờ xác minh" />;
       default:
-        return <Chip size="small" label={status} />;
+        return <Chip size="small" color="success" icon={<CheckCircleIcon />} label="Hoạt động" />;
     }
   };
+
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
   
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
@@ -132,7 +216,7 @@ const AdminHome = () => {
                 {stats.totalUsers}
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                +15 người dùng mới trong tháng
+                {stats.newUsers.length} người dùng mới gần đây
               </Typography>
               <Button 
                 variant="text" 
@@ -228,41 +312,35 @@ const AdminHome = () => {
         </Grid>
       </Grid>
       
-      {/* Biểu đồ */}
+      {/* Biểu đồ người dùng theo vai trò */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} md={8}>
+        <Grid item xs={12}>
           <Paper sx={{ p: 3, borderRadius: 2 }}>
-            <Typography variant="h6" gutterBottom>
-              Người dùng đăng ký mới theo tháng
-            </Typography>
-            <BarChart
-              xAxis={[{ scaleType: 'band', data: registrationData.map(item => item.month) }]}
-              series={[{ data: registrationData.map(item => item.users), color: '#2196f3' }]}
-              height={300}
-              margin={{ top: 10, bottom: 30, left: 40, right: 10 }}
-            />
-          </Paper>
-        </Grid>
-        
-        <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 3, borderRadius: 2, height: '100%' }}>
             <Typography variant="h6" gutterBottom>
               Người dùng theo vai trò
             </Typography>
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80%' }}>
-              <PieChart
-                series={[
-                  {
-                    data: userRoleData,
-                    innerRadius: 30,
-                    paddingAngle: 2,
-                    cornerRadius: 4,
-                  },
-                ]}
-                width={300}
-                height={200}
-              />
-            </Box>
+            {stats.totalUsers > 0 ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: 300 }}>
+                <PieChart
+                  series={[
+                    {
+                      data: userRoleData,
+                      innerRadius: 60,
+                      paddingAngle: 2,
+                      cornerRadius: 4,
+                    },
+                  ]}
+                  width={500}
+                  height={300}
+                />
+              </Box>
+            ) : (
+              <Box sx={{ textAlign: 'center', py: 4 }}>
+                <Typography color="text.secondary">
+                  Chưa có dữ liệu người dùng
+                </Typography>
+              </Box>
+            )}
           </Paper>
         </Grid>
       </Grid>
@@ -285,39 +363,47 @@ const AdminHome = () => {
         
         <Divider sx={{ mb: 2 }} />
         
-        <List>
-          {newUsers.map((user) => (
-            <React.Fragment key={user.id}>
-              <ListItem
-                alignItems="flex-start"
-                secondaryAction={
-                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
-                    {getUserRoleChip(user.role)}
-                    {getUserStatusChip(user.status)}
-                  </Box>
-                }
-              >
-                <ListItemAvatar>
-                  <Avatar>
-                    <PersonIcon />
-                  </Avatar>
-                </ListItemAvatar>
-                <ListItemText
-                  primary={user.name}
-                  secondary={
-                    <React.Fragment>
-                      <Typography component="span" variant="body2" color="text.primary">
-                        {user.email}
-                      </Typography>
-                      {` — Đăng ký: ${user.registeredDate}`}
-                    </React.Fragment>
+        {stats.newUsers.length > 0 ? (
+          <List>
+            {stats.newUsers.map((user) => (
+              <React.Fragment key={user.id}>
+                <ListItem
+                  alignItems="flex-start"
+                  secondaryAction={
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+                      {getUserRoleChip(user.role)}
+                      {getUserStatusChip(user.status)}
+                    </Box>
                   }
-                />
-              </ListItem>
-              <Divider variant="inset" component="li" />
-            </React.Fragment>
-          ))}
-        </List>
+                >
+                  <ListItemAvatar>
+                    <Avatar>
+                      <PersonIcon />
+                    </Avatar>
+                  </ListItemAvatar>
+                  <ListItemText
+                    primary={user.displayName || user.email?.split('@')[0] || 'Người dùng'}
+                    secondary={
+                      <React.Fragment>
+                        <Typography component="span" variant="body2" color="text.primary">
+                          {user.email || 'N/A'}
+                        </Typography>
+                        {` — Đăng ký: ${formatDate(user.createdAt)}`}
+                      </React.Fragment>
+                    }
+                  />
+                </ListItem>
+                <Divider variant="inset" component="li" />
+              </React.Fragment>
+            ))}
+          </List>
+        ) : (
+          <Box sx={{ textAlign: 'center', py: 4 }}>
+            <Typography color="text.secondary">
+              Chưa có người dùng mới đăng ký
+            </Typography>
+          </Box>
+        )}
       </Paper>
     </Box>
   );

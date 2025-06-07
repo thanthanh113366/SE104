@@ -28,7 +28,8 @@ import {
   FormControl,
   InputLabel,
   Select,
-  MenuItem
+  MenuItem,
+  Snackbar
 } from '@mui/material';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
@@ -142,15 +143,35 @@ const CourtDetail = () => {
   const [createdBooking, setCreatedBooking] = useState(null);
   const [paymentProcessing, setPaymentProcessing] = useState(false);
   
+  // Snackbar states
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: '',
+    severity: 'success'
+  });
+  
   // Payment success handler (đặt trước useEffect để tránh hoisting error)
   const handlePaymentSuccess = useCallback(async (payment) => {
     // Prevent multiple calls
     if (paymentProcessing) {
+      console.log('Payment already processing, skipping...');
+      return;
+    }
+    
+    // Global protection using sessionStorage
+    const orderId = payment?.orderId || payment?.id;
+    const globalKey = `booking_created_${orderId}`;
+    
+    if (sessionStorage.getItem(globalKey)) {
+      console.log('Booking already created for order:', orderId);
       return;
     }
     
     try {
       setPaymentProcessing(true);
+      
+      // Mark globally as processing
+      sessionStorage.setItem(globalKey, 'true');
       
       // Lấy booking data từ state hoặc localStorage
       let bookingData = createdBooking;
@@ -173,7 +194,8 @@ const CourtDetail = () => {
         startTime: bookingData.startTime,
         endTime: bookingData.endTime,
         totalPrice: Number(bookingData.totalPrice) || Number(bookingData.price) || 0,
-        note: bookingData.note || ''
+        note: bookingData.note || '',
+        paymentMethod: 'momo' // Đã thanh toán qua MoMo thành công
       };
 
       const response = await BookingServiceWrapper.createBooking(courtId, finalBookingData);
@@ -215,8 +237,11 @@ const CourtDetail = () => {
       const orderId = searchParams.get('orderId');
       
       if (paymentStatus === 'success' && orderId) {
+        console.log('🔄 URL Params Payment Success Detected:', { paymentStatus, orderId });
+        
         // Check if already processing to prevent duplicate calls
         if (paymentProcessing) {
+          console.log('⏸️ URL Params: Payment already processing, skipping...');
           return;
         }
         
@@ -266,14 +291,23 @@ const CourtDetail = () => {
 
   // Listen cho localStorage changes để detect thanh toán thành công từ tab khác
   useEffect(() => {
+    let eventProcessed = false; // Local flag to prevent duplicate within same event cycle
+    
     const handleStorageChange = (e) => {
       // Skip if already processing payment
-      if (paymentProcessing) {
+      if (paymentProcessing || eventProcessed) {
         return;
       }
       
-      if (e.key === 'paymentSuccess' && e.newValue) {
-        const paymentData = JSON.parse(e.newValue);
+              if (e.key === 'paymentSuccess' && e.newValue) {
+          console.log('🔄 LocalStorage Payment Success Detected:', e.newValue);
+          
+          eventProcessed = true; // Mark as processed immediately
+          
+          const paymentData = JSON.parse(e.newValue);
+          
+          // Clear localStorage ngay lập tức để prevent duplicate events
+          localStorage.removeItem('paymentSuccess');
         
         // Đóng payment dialog ngay lập tức để tạo cảm giác responsive
         setPaymentDialogOpen(false);
@@ -284,10 +318,8 @@ const CourtDetail = () => {
         // Gọi handlePaymentSuccess để tạo booking
         handlePaymentSuccess(paymentData).finally(() => {
           setLoading(false);
+          eventProcessed = false; // Reset flag after completion
         });
-        
-        // Clear localStorage
-        localStorage.removeItem('paymentSuccess');
       } else if (e.key === 'paymentError' && e.newValue) {
         const errorData = JSON.parse(e.newValue);
         
@@ -770,14 +802,26 @@ const CourtDetail = () => {
 
       handleWriteReviewClose();
       
-      // Show success message
-      alert('Đánh giá thành công!');
+      // Show success message with Snackbar
+      setSnackbar({
+        open: true,
+        message: 'Đánh giá thành công! Cảm ơn bạn đã chia sẻ trải nghiệm.',
+        severity: 'success'
+      });
     } catch (error) {
       console.error('Lỗi khi gửi đánh giá:', error);
-      alert('Có lỗi xảy ra khi gửi đánh giá. Vui lòng thử lại.');
+      setSnackbar({
+        open: true,
+        message: 'Có lỗi xảy ra khi gửi đánh giá. Vui lòng thử lại.',
+        severity: 'error'
+      });
     } finally {
       setReviewSubmitting(false);
     }
+  };
+
+  const handleCloseSnackbar = () => {
+    setSnackbar({ ...snackbar, open: false });
   };
   
   // Format price to VND
@@ -1341,6 +1385,18 @@ const CourtDetail = () => {
         onPaymentSuccess={handlePaymentSuccess}
         onPaymentError={handlePaymentError}
       />
+
+      {/* Snackbar */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert onClose={handleCloseSnackbar} severity={snackbar.severity} sx={{ width: '100%' }}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

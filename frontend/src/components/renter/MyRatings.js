@@ -20,7 +20,8 @@ import {
   DialogActions,
   TextField,
   Tabs,
-  Tab
+  Tab,
+  Snackbar
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import EditIcon from '@mui/icons-material/Edit';
@@ -72,6 +73,13 @@ const MyRatings = () => {
   const [editRating, setEditRating] = useState(5);
   const [editComment, setEditComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  
+  // Snackbar states
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: '',
+    severity: 'success'
+  });
 
   useEffect(() => {
     if (currentUser) {
@@ -83,12 +91,27 @@ const MyRatings = () => {
     try {
       setLoading(true);
       
-      // Fetch user's reviews
+      // Fetch user's reviews trực tiếp từ Firebase
       try {
-        const reviewsResponse = await ReviewServiceWrapper.getUserReviews();
-        if (reviewsResponse && reviewsResponse.reviews) {
-          setMyReviews(reviewsResponse.reviews);
-        }
+        // Import Firebase functions
+        const { db } = await import('../../firebase');
+        const { collection, query, where, orderBy, getDocs } = await import('firebase/firestore');
+        
+        // Query reviews collection where userId matches current user
+        const reviewsQuery = query(
+          collection(db, 'reviews'),
+          where('userId', '==', currentUser.uid),
+          orderBy('createdAt', 'desc')
+        );
+        
+        const reviewsSnapshot = await getDocs(reviewsQuery);
+        const reviews = reviewsSnapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+        
+        setMyReviews(reviews);
+        console.log('Fetched reviews from Firebase:', reviews);
       } catch (reviewError) {
         console.error('Error fetching reviews:', reviewError);
       }
@@ -148,10 +171,20 @@ const MyRatings = () => {
       await fetchData();
       
       setEditDialog({ open: false, review: null });
-      alert('Cập nhật đánh giá thành công!');
+      
+      // Show success message with Snackbar
+      setSnackbar({
+        open: true,
+        message: 'Cập nhật đánh giá thành công!',
+        severity: 'success'
+      });
     } catch (error) {
       console.error('Error updating review:', error);
-      alert('Có lỗi xảy ra khi cập nhật đánh giá');
+      setSnackbar({
+        open: true,
+        message: 'Có lỗi xảy ra khi cập nhật đánh giá',
+        severity: 'error'
+      });
     } finally {
       setSubmitting(false);
     }
@@ -162,10 +195,19 @@ const MyRatings = () => {
       try {
         await ReviewServiceWrapper.deleteReview(reviewId);
         await fetchData();
-        alert('Xóa đánh giá thành công!');
+        
+        setSnackbar({
+          open: true,
+          message: 'Xóa đánh giá thành công!',
+          severity: 'success'
+        });
       } catch (error) {
         console.error('Error deleting review:', error);
-        alert('Có lỗi xảy ra khi xóa đánh giá');
+        setSnackbar({
+          open: true,
+          message: 'Có lỗi xảy ra khi xóa đánh giá',
+          severity: 'error'
+        });
       }
     }
   };
@@ -186,6 +228,10 @@ const MyRatings = () => {
       style: 'currency',
       currency: 'VND'
     }).format(price).replace('₫', 'VNĐ');
+  };
+
+  const handleCloseSnackbar = () => {
+    setSnackbar({ ...snackbar, open: false });
   };
 
   if (loading) {
@@ -405,6 +451,17 @@ const MyRatings = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Snackbar */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={6000}
+        onClose={handleCloseSnackbar}
+      >
+        <Alert onClose={handleCloseSnackbar} severity={snackbar.severity}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

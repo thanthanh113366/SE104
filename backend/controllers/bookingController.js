@@ -22,7 +22,8 @@ const createBooking = async (req, res) => {
       startTime,
       endTime,
       totalPrice,
-      note
+      note,
+      paymentMethod
     } = req.body;
 
     // Kiểm tra sân tồn tại
@@ -59,7 +60,8 @@ const createBooking = async (req, res) => {
       endTime,
       totalPrice,
       notes: note,
-      status: 'pending'
+      paymentMethod: paymentMethod || 'cash', // Default to cash if not specified
+      status: paymentMethod ? 'confirmed' : 'pending' // If payment method provided, it's already paid
     });
 
     const savedBookingId = await booking.save();
@@ -80,6 +82,7 @@ const createBooking = async (req, res) => {
       endTime: booking.endTime,
       totalPrice: booking.totalPrice,
       notes: booking.notes,
+      paymentMethod: booking.paymentMethod,
       status: booking.status,
       createdAt: booking.createdAt,
       updatedAt: booking.updatedAt
