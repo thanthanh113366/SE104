@@ -278,11 +278,43 @@ const handleMoMoCallback = async (req, res) => {
         }
       });
 
-      // Cập nhật booking status
+      // Cập nhật booking status và gửi email xác nhận
       const booking = await Booking.findById(bookingData.bookingId);
       if (booking) {
         booking.status = 'confirmed';
         await booking.save();
+        
+        // Gửi email xác nhận cho người thuê sau khi thanh toán thành công
+        try {
+          // Kiểm tra xem đã gửi email xác nhận chưa
+          if (!booking.emailConfirmationSent) {
+            console.log(`=== MOMO PAYMENT EMAIL: Gửi email xác nhận sau thanh toán MoMo cho booking ${booking.id} ===`);
+            
+            const { User, Court } = require('../models');
+            const renter = await User.findById(booking.userId);
+            const court = await Court.findById(booking.courtId);
+            const owner = await User.findById(booking.ownerId);
+            
+            if (renter && renter.email && court && owner) {
+              const emailService = require('../services/emailService');
+              await emailService.sendBookingConfirmationToRenter(booking, court, owner, renter);
+              
+              // Đánh dấu đã gửi email
+              booking.emailConfirmationSent = true;
+              await booking.save();
+              
+              console.log('✅ Đã gửi email xác nhận booking sau thanh toán MoMo thành công');
+            } else {
+              console.log('❌ Không gửi email: thiếu thông tin renter, court hoặc owner');
+              console.log(`Renter: ${renter?.email || 'không có'}`, `Court: ${court?.name || 'không có'}`, `Owner: ${owner?.email || 'không có'}`);
+            }
+          } else {
+            console.log(`📧 Email xác nhận cho booking ${booking.id} đã được gửi trước đó - bỏ qua`);
+          }
+        } catch (emailError) {
+          console.error('Lỗi gửi email sau thanh toán MoMo:', emailError);
+          // Không throw error để không ảnh hưởng đến việc xử lý payment
+        }
       }
 
       console.log('Payment completed successfully:', orderId);
@@ -493,6 +525,36 @@ const handlePaymentSuccess = async (paymentIntent) => {
     const booking = await Booking.findById(payment.bookingId);
     booking.status = 'confirmed';
     await booking.save();
+    
+    // Gửi email xác nhận cho người thuê sau khi thanh toán thành công
+    try {
+      // Kiểm tra xem đã gửi email xác nhận chưa
+      if (!booking.emailConfirmationSent) {
+        console.log(`=== STRIPE PAYMENT EMAIL: Gửi email xác nhận sau thanh toán Stripe cho booking ${booking.id} ===`);
+        
+        const { User, Court } = require('../models');
+        const renter = await User.findById(booking.userId);
+        const court = await Court.findById(booking.courtId);
+        const owner = await User.findById(booking.ownerId);
+        
+        if (renter && renter.email && court && owner) {
+          const emailService = require('../services/emailService');
+          await emailService.sendBookingConfirmationToRenter(booking, court, owner, renter);
+          
+          // Đánh dấu đã gửi email
+          booking.emailConfirmationSent = true;
+          await booking.save();
+          
+          console.log('✅ Đã gửi email xác nhận booking sau thanh toán Stripe thành công');
+        } else {
+          console.log('❌ Không gửi email: thiếu thông tin renter, court hoặc owner');
+        }
+      } else {
+        console.log(`📧 Email xác nhận cho booking ${booking.id} đã được gửi trước đó - bỏ qua`);
+      }
+    } catch (emailError) {
+      console.error('Lỗi gửi email sau thanh toán Stripe:', emailError);
+    }
   }
 };
 

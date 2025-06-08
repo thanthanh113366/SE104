@@ -32,6 +32,7 @@ class Booking {
     this.notes = data.notes || ''; // Ghi chú
     this.cancellationReason = data.cancellationReason || '';
     this.isReviewed = data.isReviewed || false; // Đã đánh giá chưa
+    this.emailConfirmationSent = data.emailConfirmationSent || false; // Đã gửi email xác nhận chưa
     this.createdAt = data.createdAt || new Date();
     this.updatedAt = data.updatedAt || new Date();
   }
@@ -62,6 +63,7 @@ class Booking {
         notes: this.notes,
         cancellationReason: this.cancellationReason,
         isReviewed: this.isReviewed,
+        emailConfirmationSent: this.emailConfirmationSent,
         updatedAt: new Date()
       };
 

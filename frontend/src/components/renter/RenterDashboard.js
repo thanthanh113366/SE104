@@ -16,9 +16,9 @@ import MyBookings from './MyBookings';
 import SearchCourts from './SearchCourts';
 import CourtDetail from './CourtDetail';
 import MyRatings from './MyRatings';
+import Support from '../shared/Support';
 
-// Placeholder components
-const Support = () => <div>Hỗ trợ</div>;
+// Placeholder components removed - Support imported
 
 const RenterDashboard = () => {
   const { userDetails } = useAuth();

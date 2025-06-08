@@ -1,0 +1,15 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="256" fill="#2e7d32"/>
+  
+  <!-- White circle background for emoji -->
+  <circle cx="256" cy="256" r="200" fill="#ffffff"/>
+  
+  <!-- Stadium emoji as text -->
+  <text x="256" y="320" font-family="Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif" 
+        font-size="200" text-anchor="middle" dominant-baseline="middle">🏟️</text>
+        
+  <!-- App name underneath -->
+  <text x="256" y="420" font-family="Roboto, Arial, sans-serif" 
+        font-size="32" font-weight="bold" text-anchor="middle" fill="#2e7d32">ĐẶT SÂN</text>
+</svg> 

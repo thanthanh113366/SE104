@@ -21,6 +21,16 @@ try {
   console.error('Không thể kết nối đến Firebase Firestore:', error);
 }
 
+// Kiểm tra email service
+if (process.env.EMAIL_USER && process.env.EMAIL_PASSWORD) {
+  const emailService = require('./services/emailService');
+  emailService.verifyConnection()
+    .then(() => console.log('Email service đã sẵn sàng'))
+    .catch(() => console.log('Email service chưa được cấu hình hoặc có lỗi'));
+} else {
+  console.log('Email service chưa được cấu hình (thiếu EMAIL_USER hoặc EMAIL_PASSWORD)');
+}
+
 // Gắn tất cả routes vào endpoint /api
 app.use('/api', routes);
 

@@ -2,6 +2,7 @@ const { Booking, Court, User } = require('../models');
 const { validationResult } = require('express-validator');
 const admin = require('firebase-admin');
 const db = admin.firestore();
+const emailService = require('../services/emailService');
 
 /**
  * @desc    Tạo đặt sân mới
@@ -87,6 +88,18 @@ const createBooking = async (req, res) => {
       createdAt: booking.createdAt,
       updatedAt: booking.updatedAt
     };
+
+    // Gửi email thông báo cho chủ sân về booking mới
+    try {
+      const owner = await User.findById(court.ownerId);
+      if (owner && owner.email) {
+        await emailService.sendNewBookingNotificationToOwner(fullBooking, court, owner, user);
+        console.log('Đã gửi email thông báo booking mới cho chủ sân');
+      }
+    } catch (emailError) {
+      console.error('Lỗi gửi email thông báo cho chủ sân:', emailError);
+      // Không throw error để không ảnh hưởng đến việc tạo booking
+    }
 
     res.status(201).json({
       message: 'Đặt sân thành công',
@@ -263,12 +276,135 @@ const updateBookingStatus = async (req, res) => {
     booking.status = status;
     await booking.save();
 
+    // NOTE: Email logic được chuyển sang sử dụng riêng routes /approve và /reject
+    // Vô hiệu hóa email trong route /status để tránh duplicate emails
+    console.log(`⚠️  Route /status được gọi với status: "${status}" - Email sẽ KHÔNG được gửi từ route này`);
+    console.log(`💡 Sử dụng routes /approve hoặc /reject để gửi email tự động`);
+    
+    // Chỉ log để debug, không gửi email
+    try {
+      const renter = await User.findById(booking.userId);
+      console.log(`DEBUG: Booking ${booking.id}, User: ${renter?.email || 'không có email'}, Status: ${status}`);
+    } catch (debugError) {
+      console.error('Debug error:', debugError);
+    }
+
     res.json({
       message: 'Cập nhật trạng thái thành công',
       booking
     });
   } catch (error) {
     console.error('Lỗi cập nhật trạng thái:', error);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+};
+
+/**
+ * @desc    Chấp nhận đặt sân (Owner)
+ * @route   PUT /api/bookings/:id/approve
+ * @access  Private (Owner)
+ */
+const approveBooking = async (req, res) => {
+  try {
+    const booking = await Booking.findById(req.params.id);
+    
+    if (!booking) {
+      return res.status(404).json({ message: 'Không tìm thấy đặt sân' });
+    }
+
+    // Kiểm tra quyền chấp nhận
+    const court = await Court.findById(booking.courtId);
+    if (court.ownerId !== req.user.uid && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Không có quyền chấp nhận đặt sân này' });
+    }
+
+    // Cập nhật trạng thái
+    booking.status = 'confirmed';
+    await booking.save();
+
+    // Gửi email xác nhận cho người thuê
+    try {
+      console.log(`=== APPROVE EMAIL: Bắt đầu gửi email cho booking ${booking.id} ===`);
+      
+      const renter = await User.findById(booking.userId);
+      console.log(`Renter: ${renter?.email || 'không có email'}`);
+      
+      if (renter && renter.email) {
+        const owner = await User.findById(court.ownerId);
+        console.log(`Owner: ${owner?.email || 'không có email'}`);
+        
+        await emailService.sendBookingConfirmationToRenter(booking, court, owner, renter);
+        
+        // Đánh dấu đã gửi email xác nhận
+        booking.emailConfirmationSent = true;
+        await booking.save();
+        
+        console.log('✅ Đã gửi email xác nhận booking cho người thuê');
+      } else {
+        console.log('❌ Không gửi email vì không tìm thấy renter hoặc email');
+      }
+    } catch (emailError) {
+      console.error('Lỗi gửi email xác nhận:', emailError);
+    }
+
+    res.json({
+      message: 'Chấp nhận đặt sân thành công',
+      booking
+    });
+  } catch (error) {
+    console.error('Lỗi chấp nhận đặt sân:', error);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+};
+
+/**
+ * @desc    Từ chối đặt sân (Owner)
+ * @route   PUT /api/bookings/:id/reject
+ * @access  Private (Owner)
+ */
+const rejectBooking = async (req, res) => {
+  try {
+    const { reason } = req.body;
+    const booking = await Booking.findById(req.params.id);
+    
+    if (!booking) {
+      return res.status(404).json({ message: 'Không tìm thấy đặt sân' });
+    }
+
+    // Kiểm tra quyền từ chối
+    const court = await Court.findById(booking.courtId);
+    if (court.ownerId !== req.user.uid && req.user.role !== 'admin') {
+      return res.status(403).json({ message: 'Không có quyền từ chối đặt sân này' });
+    }
+
+    // Cập nhật trạng thái
+    booking.status = 'rejected';
+    booking.cancellationReason = reason || 'Không có lý do cụ thể';
+    await booking.save();
+
+    // Gửi email từ chối cho người thuê
+    try {
+      console.log(`=== REJECT EMAIL: Bắt đầu gửi email cho booking ${booking.id} ===`);
+      
+      const renter = await User.findById(booking.userId);
+      console.log(`Renter: ${renter?.email || 'không có email'}`);
+      
+      if (renter && renter.email) {
+        await emailService.sendBookingRejectionToRenter(booking, court, renter, reason || 'Không có lý do cụ thể');
+        console.log('✅ Đã gửi email từ chối booking cho người thuê');
+      } else {
+        console.log('❌ Không gửi email vì không tìm thấy renter hoặc email');
+      }
+    } catch (emailError) {
+      console.error('Lỗi gửi email từ chối:', emailError);
+    }
+
+    res.json({
+      message: 'Từ chối đặt sân thành công',
+      booking
+    });
+  } catch (error) {
+    console.error('Lỗi từ chối đặt sân:', error);
     res.status(500).json({ message: 'Lỗi server' });
   }
 };
@@ -324,17 +460,21 @@ const cancelBooking = async (req, res) => {
  */
 const getCourtBookings = async (req, res) => {
   try {
-    const { page = 1, limit = 10, status, date } = req.query;
+    const { page = 1, limit = 10, status, date, activeOnly } = req.query;
     const courtId = req.params.courtId;
 
     // Sử dụng Firebase Firestore
     const bookingsRef = db.collection('bookings');
     
-    // Tạm thời bỏ date filter để debug
     let query = bookingsRef.where('courtId', '==', courtId);
     
     if (status) {
       query = query.where('status', '==', status);
+    }
+    
+    // Nếu activeOnly=true, chỉ lấy pending và confirmed bookings (để check availability)
+    if (activeOnly === 'true') {
+      query = query.where('status', 'in', ['pending', 'confirmed']);
     }
 
     // Thực hiện query
@@ -476,6 +616,8 @@ module.exports = {
   getUserBookings,
   getOwnerBookings,
   updateBookingStatus,
+  approveBooking,
+  rejectBooking,
   cancelBooking,
   getCourtBookings,
   checkAvailability,

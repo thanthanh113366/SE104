@@ -35,10 +35,10 @@ import MyCourts from './MyCourts';
 import CourtBookings from './CourtBookings';
 import AddCourt from './AddCourt';
 import EditCourt from './EditCourt';
+import Support from '../shared/Support';
 
 // Placeholder components
 const Reports = () => <div>Báo cáo thống kê</div>;
-const Support = () => <div>Hỗ trợ</div>;
 
 const OwnerDashboard = () => {
   const { userDetails } = useAuth();

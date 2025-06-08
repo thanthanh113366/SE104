@@ -456,7 +456,7 @@ const CourtDetail = () => {
       try {
         if (!court) return;
         
-        const response = await BookingServiceWrapper.getCourtBookings(courtId, selectedDate);
+        const response = await BookingServiceWrapper.getCourtBookings(courtId, selectedDate, true); // activeOnly=true để chỉ lấy active bookings
         if (response && response.bookings) {
           // Backend đã filter theo ngày rồi, chỉ cần set trực tiếp
           setExistingBookings(response.bookings);
@@ -599,9 +599,11 @@ const CourtDetail = () => {
           isWithinPendingWindow: false
         };
         
-        // Kiểm tra xem khung giờ này đã có người đặt chưa
+        // Kiểm tra xem khung giờ này đã có người đặt chưa (chỉ tính pending và confirmed)
         const bookingForThisSlot = bookingsForSelectedDate.find(booking => 
-          booking.startTime === startTimeString && booking.endTime === endTimeString
+          booking.startTime === startTimeString && 
+          booking.endTime === endTimeString &&
+          (booking.status === 'pending' || booking.status === 'confirmed')
         );
         
         if (bookingForThisSlot) {
@@ -709,7 +711,7 @@ const CourtDetail = () => {
     // Refresh existing bookings để hiện booking vừa tạo
     try {
       if (court) {
-        const response = await BookingServiceWrapper.getCourtBookings(courtId, selectedDate);
+        const response = await BookingServiceWrapper.getCourtBookings(courtId, selectedDate, true); // activeOnly=true để chỉ lấy active bookings
         if (response && response.bookings) {
           // Backend đã filter theo ngày rồi
           setExistingBookings(response.bookings);

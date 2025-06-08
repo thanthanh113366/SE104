@@ -117,7 +117,7 @@ const OwnerHome = () => {
       // Tính toán stats
       const pendingBookings = ownerBookings.filter(b => b.status === 'pending' || b.status === 'Chờ xác nhận').length;
       const confirmedBookings = ownerBookings.filter(b => b.status === 'confirmed' || b.status === 'Đã xác nhận').length;
-      const cancelledBookings = ownerBookings.filter(b => b.status === 'cancelled' || b.status === 'Đã hủy').length;
+      const cancelledBookings = ownerBookings.filter(b => b.status === 'cancelled' || b.status === 'rejected' || b.status === 'Đã hủy').length;
       
       // Tính tổng doanh thu từ các booking đã xác nhận
       const totalRevenue = ownerBookings
@@ -176,6 +176,7 @@ const OwnerHome = () => {
       case 'Chờ xác nhận':
         return <PendingIcon color="warning" />;
       case 'cancelled':
+      case 'rejected':
       case 'Đã hủy':
         return <ErrorIcon color="error" />;
       default:
@@ -195,6 +196,8 @@ const OwnerHome = () => {
       case 'cancelled':
       case 'Đã hủy':
         return 'Đã hủy';
+      case 'rejected':
+        return 'Đã từ chối';
       default:
         return 'Không xác định';
     }

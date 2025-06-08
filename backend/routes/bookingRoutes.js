@@ -8,6 +8,8 @@ const {
   getUserBookings,
   getOwnerBookings,
   updateBookingStatus,
+  approveBooking,
+  rejectBooking,
   cancelBooking,
   getCourtBookings,
   checkAvailability,
@@ -65,6 +67,20 @@ router.get('/:id', authenticate, getBookingById);
 router.put('/:id/status', authenticate, updateBookingStatus);
 
 /**
+ * @route PUT /api/bookings/:id/approve
+ * @desc Chấp nhận đặt sân (Owner)
+ * @access Private
+ */
+router.put('/:id/approve', authenticate, approveBooking);
+
+/**
+ * @route PUT /api/bookings/:id/reject
+ * @desc Từ chối đặt sân (Owner)
+ * @access Private
+ */
+router.put('/:id/reject', authenticate, rejectBooking);
+
+/**
  * @route PUT /api/bookings/:id/cancel
  * @desc Hủy đặt sân
  * @access Private
@@ -91,5 +107,34 @@ router.get('/available/:courtId', checkAvailability);
  * @access Private
  */
 router.post('/cleanup', authenticate, cleanupOldPendingBookings);
+
+/**
+ * @route GET /api/bookings/test-email
+ * @desc Test email service
+ * @access Private
+ */
+router.get('/test-email', authenticate, async (req, res) => {
+  try {
+    const emailService = require('../services/emailService');
+    const testResult = await emailService.verifyConnection();
+    
+    if (testResult) {
+      res.json({ 
+        message: 'Email service đã sẵn sàng', 
+        status: 'success' 
+      });
+    } else {
+      res.status(500).json({ 
+        message: 'Email service chưa được cấu hình đúng', 
+        status: 'error' 
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ 
+      message: 'Lỗi kiểm tra email service', 
+      error: error.message 
+    });
+  }
+});
 
 module.exports = router; 

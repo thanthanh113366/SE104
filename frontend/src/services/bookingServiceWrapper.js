@@ -117,7 +117,7 @@ const BookingServiceWrapper = {
   },
 
   // Lấy danh sách đặt sân của một sân
-  getCourtBookings: async (courtId, date = null) => {
+  getCourtBookings: async (courtId, date = null, activeOnly = false) => {
     // Tạo params object
     const params = { limit: 50 }; // Giới hạn 50 bookings là đủ cho 1 ngày
     
@@ -127,6 +127,11 @@ const BookingServiceWrapper = {
         ? date.toISOString().split('T')[0]
         : date;
       params.date = formattedDate;
+    }
+    
+    // Nếu activeOnly = true, chỉ lấy pending và confirmed bookings
+    if (activeOnly) {
+      params.activeOnly = 'true';
     }
     
     const response = await api.get(`/bookings/court/${courtId}`, { params });

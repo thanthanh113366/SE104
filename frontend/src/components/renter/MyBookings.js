@@ -196,11 +196,13 @@ const MyBookings = () => {
       const resolvedBookings = await Promise.all(bookingsPromises);
       
       // Sắp xếp theo thời gian đặt (createdAt) trên client side - mới nhất trước
-      bookingsData.push(...resolvedBookings.sort((a, b) => {
+      const sortedBookings = resolvedBookings.sort((a, b) => {
         const createdA = a.createdAt instanceof Date ? a.createdAt : new Date(a.createdAt);
         const createdB = b.createdAt instanceof Date ? b.createdAt : new Date(b.createdAt);
         return createdB - createdA; // Booking mới nhất trước
-      }));
+      });
+      
+      bookingsData.push(...sortedBookings);
       
       // Nếu không có dữ liệu từ Firestore, sử dụng dữ liệu demo
       if (bookingsData.length === 0) {
@@ -261,8 +263,15 @@ const MyBookings = () => {
           }
         });
         
-        console.log('Final bookings data:', processedBookings); // Log toàn bộ dữ liệu đã xử lý
-        setBookings(processedBookings);
+        // Sắp xếp lại lần nữa sau khi process để đảm bảo thứ tự
+        const finalSortedBookings = processedBookings.sort((a, b) => {
+          const createdA = a.createdAt instanceof Date ? a.createdAt : new Date(a.createdAt);
+          const createdB = b.createdAt instanceof Date ? b.createdAt : new Date(b.createdAt);
+          return createdB - createdA; // Booking mới nhất trước
+        });
+        
+        console.log('Final bookings data:', finalSortedBookings); // Log toàn bộ dữ liệu đã xử lý
+        setBookings(finalSortedBookings);
       }
     } catch (err) {
       console.error('Error fetching bookings:', err);
@@ -296,7 +305,7 @@ const MyBookings = () => {
       } else if (tabValue === 2) { // Completed
         setFilteredBookings(bookings.filter(b => b.status === 'completed'));
       } else if (tabValue === 3) { // Cancelled
-        setFilteredBookings(bookings.filter(b => b.status === 'cancelled'));
+        setFilteredBookings(bookings.filter(b => b.status === 'cancelled' || b.status === 'rejected'));
       }
     };
     
@@ -422,17 +431,19 @@ const MyBookings = () => {
   const getStatusChip = (status) => {
     switch (status) {
       case 'upcoming':
-        return <Chip label="Sắp diễn ra" color="primary" size="small" />;
+        return <Chip label="Sắp diễn ra" color="primary" size="small" sx={{ fontWeight: 'medium' }} />;
       case 'pending':
-        return <Chip label="Chờ xác nhận" color="warning" size="small" />;
+        return <Chip label="Chờ xác nhận" color="warning" size="small" sx={{ fontWeight: 'medium', backgroundColor: '#fff3e0', color: '#e65100' }} />;
       case 'completed':
-        return <Chip label="Đã hoàn thành" color="success" size="small" />;
+        return <Chip label="Đã hoàn thành" color="success" size="small" sx={{ fontWeight: 'medium', backgroundColor: '#e8f5e8', color: '#2e7d32' }} />;
       case 'cancelled':
-        return <Chip label="Đã hủy" color="error" size="small" />;
+        return <Chip label="Đã hủy" color="error" size="small" sx={{ fontWeight: 'medium', backgroundColor: '#ffebee', color: '#c62828' }} />;
       case 'confirmed':
-        return <Chip label="Đã xác nhận" color="success" size="small" />;
+        return <Chip label="Đã xác nhận" color="success" size="small" sx={{ fontWeight: 'medium', backgroundColor: '#e8f5e8', color: '#2e7d32' }} />;
+      case 'rejected':
+        return <Chip label="Không được duyệt" size="small" sx={{ fontWeight: 'medium', backgroundColor: '#fce4ec', color: '#ad1457', border: '1px solid #f8bbd9' }} />;
       default:
-        return <Chip label={status} size="small" />;
+        return <Chip label={status} size="small" sx={{ fontWeight: 'medium' }} />;
     }
   };
   
@@ -472,7 +483,12 @@ const MyBookings = () => {
   return (
     <Box sx={{ p: { xs: 2, md: 3 } }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h5">Lịch đặt sân của tôi</Typography>
+        <Box>
+          <Typography variant="h5">Lịch đặt sân của tôi</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            Sắp xếp theo thời gian đặt sân (mới nhất trước)
+          </Typography>
+        </Box>
         <Button
           variant="outlined"
           startIcon={refreshing ? <CircularProgress size={20} /> : <RefreshIcon />}
@@ -500,7 +516,7 @@ const MyBookings = () => {
           <Tab label={`Tất cả (${bookings.length})`} />
           <Tab label={`Sắp diễn ra (${bookings.filter(b => b.status === 'upcoming' || b.status === 'pending').length})`} />
           <Tab label={`Đã hoàn thành (${bookings.filter(b => b.status === 'completed').length})`} />
-          <Tab label={`Đã hủy (${bookings.filter(b => b.status === 'cancelled').length})`} />
+          <Tab label={`Đã hủy (${bookings.filter(b => b.status === 'cancelled' || b.status === 'rejected').length})`} />
         </Tabs>
       </Paper>
       

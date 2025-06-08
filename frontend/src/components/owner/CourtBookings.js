@@ -38,7 +38,7 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { vi } from 'date-fns/locale';
 import { collection, query, where, getDocs, getDoc, doc, updateDoc, orderBy, Timestamp, limit } from 'firebase/firestore';
-import { db } from '../../firebase';
+import { db, auth } from '../../firebase';
 import { useAuth } from '../../contexts/AuthContext';
 
 // Icons
@@ -384,7 +384,7 @@ const CourtBookings = () => {
     // Lọc theo tab (trạng thái)
     if (tabValue === 0 && booking.status !== 'pending') return false;
     if (tabValue === 1 && booking.status !== 'confirmed') return false;
-    if (tabValue === 2 && booking.status !== 'cancelled') return false;
+    if (tabValue === 2 && booking.status !== 'cancelled' && booking.status !== 'rejected') return false;
     if (tabValue === 3) { /* Tất cả booking */ }
     
     // Lọc theo tìm kiếm
@@ -472,14 +472,21 @@ const CourtBookings = () => {
     try {
       if (!bookingId) return;
       
-      // Cập nhật trạng thái trong Firestore
-      const bookingRef = doc(db, 'bookings', bookingId);
-      await updateDoc(bookingRef, { 
-        status: 'confirmed',
-        updatedAt: new Date()
+      // Gọi API backend để xác nhận đặt sân (sẽ gửi email)
+      const response = await fetch(`http://localhost:5000/api/bookings/${bookingId}/approve`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await auth.currentUser.getIdToken()}`
+        }
       });
       
-      console.log(`Đã xác nhận đặt sân ${bookingId}`);
+      if (!response.ok) {
+        throw new Error('Không thể xác nhận đặt sân');
+      }
+      
+      const result = await response.json();
+      console.log(`✅ Đã xác nhận đặt sân ${bookingId} và gửi email`);
       
       // Cập nhật state
       setBookings(bookings.map(booking => {
@@ -501,27 +508,37 @@ const CourtBookings = () => {
     try {
       if (!selectedBooking) return;
       
-      // Cập nhật trạng thái trong Firestore
-      const bookingRef = doc(db, 'bookings', selectedBooking.id);
-      await updateDoc(bookingRef, { 
-        status: 'cancelled',
-        updatedAt: new Date()
+      // Gọi API backend để từ chối đặt sân (sẽ gửi email)
+      const response = await fetch(`http://localhost:5000/api/bookings/${selectedBooking.id}/reject`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await auth.currentUser.getIdToken()}`
+        },
+        body: JSON.stringify({
+          reason: 'Sân đã có lịch đặt khác' // Có thể thêm input để chủ sân nhập lý do
+        })
       });
       
-      console.log(`Đã hủy đặt sân ${selectedBooking.id}`);
+      if (!response.ok) {
+        throw new Error('Không thể từ chối đặt sân');
+      }
+      
+      const result = await response.json();
+      console.log(`✅ Đã từ chối đặt sân ${selectedBooking.id} và gửi email`);
       
       // Cập nhật state
       setBookings(bookings.map(booking => {
         if (booking.id === selectedBooking.id) {
-          return { ...booking, status: 'cancelled' };
+          return { ...booking, status: 'rejected' };
         }
         return booking;
       }));
       
       handleCloseCancelDialog();
     } catch (err) {
-      console.error('Lỗi khi hủy đặt sân:', err);
-      setError('Không thể hủy đặt sân. Vui lòng thử lại sau.');
+      console.error('Lỗi khi từ chối đặt sân:', err);
+      setError('Không thể từ chối đặt sân. Vui lòng thử lại sau.');
     }
   };
   
@@ -559,6 +576,15 @@ const CourtBookings = () => {
           <Chip 
             icon={<CancelIcon fontSize="small" />} 
             label="Đã hủy" 
+            color="error" 
+            size="small" 
+          />
+        );
+      case 'rejected':
+        return (
+          <Chip 
+            icon={<CancelIcon fontSize="small" />} 
+            label="Đã từ chối" 
             color="error" 
             size="small" 
           />
@@ -655,7 +681,7 @@ const CourtBookings = () => {
         >
           <Tab label={`Chờ xác nhận (${bookings.filter(b => b.status === 'pending').length})`} />
           <Tab label={`Đã xác nhận (${bookings.filter(b => b.status === 'confirmed').length})`} />
-          <Tab label={`Đã hủy (${bookings.filter(b => b.status === 'cancelled').length})`} />
+          <Tab label={`Đã hủy (${bookings.filter(b => b.status === 'cancelled' || b.status === 'rejected').length})`} />
           <Tab label="Tất cả" />
         </Tabs>
         
@@ -753,7 +779,7 @@ const CourtBookings = () => {
         {selectedBooking && (selectedBooking.status === 'pending' || selectedBooking.status === 'confirmed') && (
           <MenuItem onClick={handleOpenCancelDialog}>
             <CancelIcon fontSize="small" sx={{ mr: 1 }} />
-            Hủy đặt sân
+            {selectedBooking.status === 'pending' ? 'Từ chối đặt sân' : 'Hủy đặt sân'}
           </MenuItem>
         )}
       </Menu>
@@ -884,7 +910,7 @@ const CourtBookings = () => {
                   color="error"
                   startIcon={<CancelIcon />}
                 >
-                  Hủy đặt sân
+                  {selectedBooking.status === 'pending' ? 'Từ chối đặt sân' : 'Hủy đặt sân'}
                 </Button>
               )}
             </DialogActions>

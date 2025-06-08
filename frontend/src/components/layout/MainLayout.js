@@ -128,7 +128,7 @@ const MainLayout = ({ children, title, menuItems }) => {
             <MenuIcon />
           </IconButton>
           <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
-            {title || 'Quản lý đặt sân thể thao'}
+            {title || '🏟️ Đặt Sân Thể Thao'}
           </Typography>
           
           <Tooltip title="Thông tin tài khoản">
@@ -184,8 +184,8 @@ const MainLayout = ({ children, title, menuItems }) => {
         onClose={handleDrawerClose}
       >
         <DrawerHeader>
-          <Typography variant="h6" sx={{ flexGrow: 1, ml: 2 }}>
-            Thể Thao 24h
+          <Typography variant="h6" sx={{ flexGrow: 1, ml: 2, fontWeight: 'bold' }}>
+            🏟️ Đặt Sân Thể Thao
           </Typography>
           <IconButton onClick={handleDrawerClose}>
             <ChevronLeftIcon />

@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Tạo Favicon từ Emoji</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            text-align: center;
+        }
+        canvas {
+            border: 1px solid #ddd;
+            margin: 20px;
+        }
+        .instructions {
+            max-width: 600px;
+            margin: 0 auto;
+            text-align: left;
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🏟️ Tạo Favicon cho Đặt Sân Thể Thao</h1>
+    
+    <canvas id="favicon32" width="32" height="32"></canvas>
+    <canvas id="favicon64" width="64" height="64"></canvas>
+    
+    <div class="instructions">
+        <h3>Hướng dẫn tạo favicon:</h3>
+        <ol>
+            <li>Mở file này trong trình duyệt</li>
+            <li>Click chuột phải vào canvas và chọn "Save image as..."</li>
+            <li>Lưu file với tên "favicon.ico" (kích thước 32x32 cho favicon chính)</li>
+            <li>Thay thế file favicon.ico cũ trong thư mục public</li>
+        </ol>
+        <p><strong>Hoặc sử dụng công cụ online:</strong></p>
+        <ul>
+            <li>Vào <a href="https://favicon.io/emoji-favicons/stadium/" target="_blank">favicon.io</a></li>
+            <li>Tìm emoji 🏟️ và tạo favicon</li>
+            <li>Tải về và thay thế các file logo cũ</li>
+        </ul>
+    </div>
+
+    <script>
+        function drawFavicon(canvasId, size) {
+            const canvas = document.getElementById(canvasId);
+            const ctx = canvas.getContext('2d');
+            
+            // Background circle
+            ctx.fillStyle = '#2e7d32';
+            ctx.beginPath();
+            ctx.arc(size/2, size/2, size/2, 0, 2 * Math.PI);
+            ctx.fill();
+            
+            // Emoji
+            ctx.font = `${size*0.6}px Apple Color Emoji, Segoe UI Emoji`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('🏟️', size/2, size/2);
+        }
+        
+        drawFavicon('favicon32', 32);
+        drawFavicon('favicon64', 64);
+    </script>
+</body>
+</html> 
