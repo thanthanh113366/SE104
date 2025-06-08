@@ -473,7 +473,7 @@ const CourtBookings = () => {
       if (!bookingId) return;
       
       // Gọi API backend để xác nhận đặt sân (sẽ gửi email)
-      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/bookings/${bookingId}/approve`, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000/api'}/bookings/${bookingId}/approve`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -509,7 +509,7 @@ const CourtBookings = () => {
       if (!selectedBooking) return;
       
       // Gọi API backend để từ chối đặt sân (sẽ gửi email)
-      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/bookings/${selectedBooking.id}/reject`, {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:5000/api'}/bookings/${selectedBooking.id}/reject`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
