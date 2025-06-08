@@ -135,3 +135,5 @@ Link drive BaoCaoDeTai_SEP.28: https://drive.google.com/drive/u/0/folders/1tdr2e
 Link Google Sheet SE104.P28_DeTai: https://docs.google.com/spreadsheets/d/1RhBuRweLjN-NTBbcuI_y2r9DXx-ig117/edit?rtpof=true&gid=1830823844#gid=1830823844
 
 Link Report: https://uithcm-my.sharepoint.com/:w:/g/personal/23521319_ms_uit_edu_vn/ERvY2kD0hN5NsvFKNyIL0NABX7wYe2hbCb-IwkaGY5CGnQ?rtime=fcMFwENs3Ug
+
+Link Slide: https://www.canva.com/design/DAGpr7O5O7U/YJfWH0JPcL56gSrnQttLKg/edit?fbclid=IwY2xjawKyhaVleHRuA2FlbQIxMABicmlkETFJWlJ3UFhpSDlZQ1hUQzhNAR4xrQjA1DbuWkr7f5B1On-Cl65v_V9LvIZQqUhs-dV5Zrdf-TCp__XkSQYU2g_aem_yIhC2iA5ZX_wGSC4nrPASg
