@@ -127,7 +127,7 @@ Nhập email và mật khẩu khi được nhắc.
 
 ## Thông tin liên hệ
 
-Nếu bạn có bất kỳ câu hỏi hoặc đề xuất nào, vui lòng liên hệ [email@example.com].
+Nếu bạn có bất kỳ câu hỏi hoặc đề xuất nào, vui lòng liên hệ [thanthanh113366@gmail.com].
 
 # SE104
 Link drive BaoCaoDeTai_SEP.28: https://drive.google.com/drive/u/0/folders/1tdr2ePP3CE-g_i_Sredy3rrfdLBmQTZY
